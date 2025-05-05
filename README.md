@@ -48,7 +48,32 @@ LLM Approaches under test:
  python extract_clinical_trials.py NCT01234567
 ```
 
-## Repository Structure & Results Organization (2025)
+## Methodology & Novel Contributions
+
+Our pipeline combines traditional NLP baselines with novel LLM-driven workflows under free-tier constraints (1 call/minute, 50 calls/day):
+
+- Baseline extraction & modeling:
+  - Regex-based phase, enrollment, endpoint extraction
+  - TF-IDF + NMF topic modeling as initial cluster analysis
+
+- LLM-Enhanced Workflows:
+  1. Few-shot PICO extraction via OpenRouter prompts, validated against a small gold set
+  2. LLM-based inference of study phase/status for ambiguous cases
+  3. Embedding-based semantic clustering and automated cluster labeling
+  4. Abstractive summarization with multi-prompt strategies (vs truncation)
+  5. Retrieval-Augmented Generation (RAG) for domain-specific QA over the trial corpus
+  6. Multi-agent orchestration vs single-prompt: comparing cost, latency, and accuracy
+  7. Active learning loop: human validation on random subsets to refine prompts and bootstrap fine-tuning
+
+- Rigorous Evaluation Metrics:
+  - Precision/recall and F1 for structured extraction
+  - Topic coherence scores (e.g. C_v) for clustering methods
+  - QA accuracy comparison vs keyword search
+  - Calibration and error analysis for LLM extractions
+
+See `scripts/nlp_analysis.py` and `llm_client.py` for implementation details.
+
+## Repository Structure & Results Organization
 
 All data and results are organized for clarity and reproducibility:
 

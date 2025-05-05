@@ -4,6 +4,8 @@ import requests
 import json # Added for printing
 import time # Added for sleep
 import sys # Added for stderr printing
+import datetime
+import threading
 
 API_KEY = config.OPENROUTER_API_KEY
 API_HOST = getattr(config, "OPENROUTER_API_HOST", "https://openrouter.ai/api/v1")
@@ -15,12 +17,46 @@ X_TITLE = getattr(config, "X_TITLE", None)
 class DailyRateLimitError(Exception):
     pass
 
+# File to track usage (date, count, last_call timestamp)
+USAGE_FILE = os.path.join(os.path.dirname(__file__), 'llm_usage.json')
+
+# Thread-safe lock for usage file access
+_usage_lock = threading.Lock()
+
+def _load_usage():
+    try:
+        with open(USAGE_FILE, 'r') as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {'date': datetime.date.today().isoformat(), 'count': 0, 'last_call': 0}
+
+def _save_usage(usage):
+    with open(USAGE_FILE, 'w') as f:
+        json.dump(usage, f)
+
 class LLMClient:
     def __init__(self, model="deepseek/deepseek-v3-base:free"):  # Use DeepSeek V3 Base free model
         self.model = model
         self.url = f"{API_HOST}/chat/completions"
 
     def generate(self, prompt: str, max_tokens: int = 4096, temperature: float = 0.0, max_retries: int = 3) -> str: # Increased max_tokens further
+        # Throttle and check daily limits
+        with _usage_lock:
+            usage = _load_usage()
+            today = datetime.date.today().isoformat()
+            # Reset count if new day
+            if usage.get('date') != today:
+                usage = {'date': today, 'count': 0, 'last_call': 0}
+            if usage['count'] >= 50:
+                raise DailyRateLimitError("Daily free-tier usage limit reached (50 calls)")
+            # Enforce 1 call per minute
+            now_ts = time.time()
+            elapsed = now_ts - usage.get('last_call', 0)
+            if elapsed < 60:
+                wait = 60 - elapsed
+                print(f"Rate limiting: waiting {int(wait)}s to respect per-minute limit", file=sys.stderr)
+                time.sleep(wait)
+
         headers = {
             "Authorization": f"Bearer {API_KEY}",
             "Content-Type": "application/json",
@@ -90,6 +126,11 @@ class LLMClient:
                  # Should not happen if loop runs at least once, but handle defensively
                  raise Exception("Failed to get response after retries, but no exception recorded.")
 
+        # After successful call, update usage
+        with _usage_lock:
+            usage['count'] += 1
+            usage['last_call'] = now_ts
+            _save_usage(usage)
 
         # --- Response parsing ---
         try:

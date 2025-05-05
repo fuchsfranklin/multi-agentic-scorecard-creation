@@ -13,6 +13,18 @@ from wordcloud import WordCloud
 import numpy as np
 from sklearn.manifold import TSNE
 import seaborn as sns
+import sys
+# Add project root for llm_client import (disabled for cost reasons)
+# script_dir_for_import = os.path.dirname(os.path.abspath(__file__))
+# project_root_for_import = os.path.dirname(script_dir_for_import)
+# sys.path.append(project_root_for_import)
+# try:
+#     from llm_client import LLMClient
+# except ImportError:
+#     print("Warning: llm_client not found, LLM extraction disabled.")
+#     LLMClient = None
+from llm_client import LLMClient, DailyRateLimitError  # re-enable LLM integration
+# LLM functionality enabled; rate limits handled in llm_client.py
 
 # Load the NLP JSON data (each entry contains the full text for a clinical trial)
 def load_nlp_data(path: str) -> List[Dict]:
@@ -114,24 +126,35 @@ def save_summary_table(phase_counts, topics):
             f.write(f"  Topic {i+1}: {', '.join(topic_words)}\n")
 
 def normalize_phase_label(label):
-    # Standardize phase labels (e.g., "phase II" -> "Phase II")
+    # Improved normalization for varied formats
     if not label:
         return 'Unknown'
-    l = label.lower().replace(' ', '')
-    if 'phase1' in l:
+    l = re.sub(r'\s+', '', label.lower())  # remove whitespace
+    l = re.sub(r'[\/\-\(\)]', '', l)
+    if 'earlyphase1' in l or 'phase0' in l:
+        return 'Early Phase 1/0'
+    if l in ('phasei','phase1'):
         return 'Phase I'
-    if 'phase2' in l:
+    if l in ('phaseii','phase2'):
         return 'Phase II'
-    if 'phase3' in l:
+    if l in ('phaseiii','phase3'):
         return 'Phase III'
-    if 'phase4' in l:
+    if l in ('phaseiv','phase4'):
         return 'Phase IV'
-    if 'earlyphase1' in l:
-        return 'Early Phase 1'
-    if 'notapplicable' in l:
+    if 'notapplicable' in l or l=='na':
         return 'Not Applicable'
-    # Return title-cased if no standard match
-    return label.strip().title()
+    return 'Unknown'
+
+# New: extract phase via LLM for a small sample (disabled)
+# if LLMClient:
+#     def extract_phase_llm(text: str, llm: LLMClient) -> str:
+#         prompt = f"Extract study phase from text..."
+#         try:
+#             resp = llm.generate(prompt).strip()
+#             norm = normalize_phase_label(resp)
+#             return norm
+#         except Exception:
+#             return 'Unknown'
 
 def advanced_topic_analysis(texts, n_topics, W, topics, outdir):
     # Assign each study to its most probable topic based on NMF weights
@@ -206,6 +229,34 @@ def advanced_topic_analysis(texts, n_topics, W, topics, outdir):
             else:
                 f.write('No studies assigned.\n\n')
 
+def extract_pico_llm(text: str, llm: LLMClient) -> dict:
+    """Call LLM to extract PICO elements as JSON."""
+    prompt = f"""
+You are a clinical research assistant. Extract the following from the trial text below.
+Return a JSON object with keys: population, intervention, comparator, outcomes.
+
+Trial Text:
+""" + text[:1500] + """
+"""
+    response = llm.generate(prompt)
+    try:
+        return json.loads(response)
+    except json.JSONDecodeError:
+        return {"error": "invalid JSON", "raw": response}
+
+
+def infer_phase_llm(text: str, llm: LLMClient) -> str:
+    """Call LLM to infer study phase for texts labeled 'Unknown'."""
+    prompt = f"""
+Given the following clinical trial description, infer the most likely study phase.
+Possible values: Early Phase 1/0, Phase I, Phase II, Phase III, Phase IV, Not Applicable.
+Return just the phase label.
+
+{text[:1500]}
+"""
+    resp = llm.generate(prompt).strip()
+    return normalize_phase_label(resp)
+
 # Main workflow: load data, extract attributes, classify, summarize, model topics, and visualize
 def main():
     # Define output directory relative to script location or project root
@@ -234,6 +285,18 @@ def main():
     norm_phases = [normalize_phase_label(p) for p in phase_classes] # Use classified phases
     norm_phase_counts = Counter(norm_phases)
     print('Normalized Phase Distribution:', norm_phase_counts)
+
+    # LLM-based phase extraction sample (disabled)
+    # if LLMClient:
+    #     sample_results = []
+    #     for i, t in enumerate(texts[:10]):
+    #         sample_results.append({
+    #             'nctId': nct_ids[i],
+    #             'regex': norm_regex_phases[i],
+    #             'llm': extract_phase_llm(t, llm)
+    #         })
+    #     with open(os.path.join(outdir,'llm_phase_sample.json'),'w',encoding='utf-8') as f:
+    #         json.dump(sample_results,f,indent=2)
 
     # Summarization: create a short summary for each study (first 300 chars)
     summaries = [t[:300] + '...' if len(t) > 300 else t for t in texts]
@@ -292,6 +355,46 @@ def main():
             'primary_endpoints': primary_endpoints,
             'summaries': summaries
         }, f, indent=2)
+
+    # Incremental LLM-based PICO extraction
+    if LLMClient:
+        pico_file = os.path.join(outdir, 'pico_extractions.json')
+        try:
+            pico_data = json.load(open(pico_file))
+        except (FileNotFoundError, json.JSONDecodeError):
+            pico_data = []
+        llm = LLMClient()
+        batch_size = 5
+        start = len(pico_data)
+        for idx in range(start, min(start + batch_size, len(texts))):
+            try:
+                pico = extract_pico_llm(texts[idx], llm)
+            except DailyRateLimitError:
+                print("Reached daily LLM limit during PICO extraction, stopping batch.")
+                break
+            pico_data.append({'nctId': data[idx].get('nctId'), 'pico': pico})
+        with open(pico_file, 'w', encoding='utf-8') as f:
+            json.dump(pico_data, f, indent=2)
+
+    # Incremental LLM-based phase inference for 'Unknown'
+    if LLMClient:
+        phase_inf_file = os.path.join(outdir, 'phase_inference.json')
+        try:
+            phase_inf = json.load(open(phase_inf_file))
+        except (FileNotFoundError, json.JSONDecodeError):
+            phase_inf = []
+        llm = LLMClient()
+        unknown_idxs = [i for i,p in enumerate(norm_phases) if p=='Unknown']
+        start_inf = len(phase_inf)
+        for j in unknown_idxs[start_inf:start_inf+batch_size]:
+            try:
+                inferred = infer_phase_llm(texts[j], llm)
+            except DailyRateLimitError:
+                print("Reached daily LLM limit during phase inference, stopping batch.")
+                break
+            phase_inf.append({'nctId': data[j].get('nctId'), 'inferred_phase': inferred})
+        with open(phase_inf_file, 'w', encoding='utf-8') as f:
+            json.dump(phase_inf, f, indent=2)
 
 if __name__ == '__main__':
     main()
