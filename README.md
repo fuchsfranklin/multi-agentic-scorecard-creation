@@ -12,93 +12,79 @@ LLM Approaches under test:
 
 ## Workflow
 
-1. Define trial‑design attributes for scoring (e.g., phase, enrollment, primary endpoint type).  
-2. Pull data via ClinicalTrials.gov API.  
-3. Prompt each LLM workflow to extract/synthesize attribute summaries.  
-4. Compare outputs to a human‑curated “gold standard” for each attribute.
-
-## Key Attributes & LLM Approach Matrix
-
-| Attribute                         | Gold Std | Multi‑Agentic                      | Single LLM                      | LLM w/ RAG                       |
-| :-------------------------------- | :------- | :--------------------------------- | :------------------------------ | :------------------------------- |
-| Study Phase Distribution          | Manual   | Agents coordinate to parse phases  | One model directly queries API  | Model retrieves docs + answers   |
-| Target Enrollment Size            | Manual   | Agents split tasks by field        | One prompt for all fields       | RAG retrieves specific trials    |
-| Primary Endpoint Type             | Manual   | Specialized agents per domain      | Single model prompt chain      | RAG fetches trial sections       |
-| Intervention Model (e.g., RCT)    | Manual   | Agent planning → extraction agent  | Single prompt + parse JSON     | RAG + LLM answers                |
-| Condition/Disease Focus           | Manual   | NL→Agent→Taxonomy agents           | Single LLM with taxonomy prompt| RAG retrieves condition metadata |
-| Study Status (Recruiting/Completed)| Manual  | Agents check API + update status   | One model inspects status field| RAG fetches trial registry pages |
-
-\* “Gold Std” refers to expert‑curated extraction via direct JSON parsing.
+1. Define trial-design attributes for scoring (e.g., phase, enrollment, primary endpoint type).
+2. Fetch raw trial data from ClinicalTrials.gov.
+3. Run NLP & structured analysis scripts locally.
+4. (Optional) Enable OpenRouter API key to activate LLM-driven extraction under free-tier limits.
 
 ## Quickstart
 
 ```bash
-# 1. Clone repo
- git clone <repo>
- cd multi-agentic-scorecard-creation
+# Clone and install
+git clone <repo> && cd multi-agentic-scorecard-creation
+pip install -r requirements.txt
 
-# 2. Install dependencies
- pip install -r requirements.txt
+# Configure API key for LLM (free-tier: 1 call/min, 50 calls/day)
+cp .env.example .env
+# Edit .env and set OPENROUTER_API_KEY
 
-# 3. Configure API key
- cp .env.example .env
- # Edit .env and set OPENROUTER_API_KEY from your OpenRouter account (sign up at https://openrouter.ai/signup)
+# 1) Fetch trials (raw JSON)
+python extract_clinical_trials.py --condition Cachexia --output-file data/raw/cachexia_studies_fetched.json
 
-# 4. Run extraction
- python extract_clinical_trials.py NCT01234567
+# 2) Run categorical (structured) analysis
+python scripts/categorical_analysis.py
+
+# 3) Run NLP analysis (includes topic modeling and summaries)
+python scripts/nlp_analysis.py
+
+# 4) After normal runs, enable LLM workflows in nlp_analysis.py and re-run:
+#    - Few-shot PICO extraction → data/nlp/pico_extractions.json
+#    - Phase inference for ambiguous cases → data/nlp/phase_inference.json
 ```
 
-## Methodology & Novel Contributions
+## Approach & Novelty
 
-Our pipeline combines traditional NLP baselines with novel LLM-driven workflows under free-tier constraints (1 call/minute, 50 calls/day):
+We combine proven baselines with lightweight LLM enhancements, all under strict free-tier constraints (1 request/minute, 50 requests/day):
 
-- Baseline extraction & modeling:
-  - Regex-based phase, enrollment, endpoint extraction
-  - TF-IDF + NMF topic modeling as initial cluster analysis
+Baseline Methods:
+- Regex-based extraction (phase, enrollment, endpoints)
+- TF-IDF & NMF for unsupervised topic discovery
 
-- LLM-Enhanced Workflows:
-  1. Few-shot PICO extraction via OpenRouter prompts, validated against a small gold set
-  2. LLM-based inference of study phase/status for ambiguous cases
-  3. Embedding-based semantic clustering and automated cluster labeling
-  4. Abstractive summarization with multi-prompt strategies (vs truncation)
-  5. Retrieval-Augmented Generation (RAG) for domain-specific QA over the trial corpus
-  6. Multi-agent orchestration vs single-prompt: comparing cost, latency, and accuracy
-  7. Active learning loop: human validation on random subsets to refine prompts and bootstrap fine-tuning
+LLM-Enhanced Steps (activate with valid OPENROUTER_API_KEY):
+1. Few-shot PICO extraction: JSON output of population, intervention, comparator, outcomes
+2. LLM-driven phase/status inference for cases labeled "Unknown"
+3. Abstractive summarization comparisons vs. truncation
+4. Embedding-based clustering + auto-labeling of new semantic topics
+5. Retrieval-Augmented QA: ad-hoc trial queries using vector search + LLM
+6. Multi-agent vs. single-prompt workflows: measure cost, latency, accuracy
+7. Human-in-the-loop active learning: validate random subsets to refine prompts/training
 
-- Rigorous Evaluation Metrics:
-  - Precision/recall and F1 for structured extraction
-  - Topic coherence scores (e.g. C_v) for clustering methods
-  - QA accuracy comparison vs keyword search
-  - Calibration and error analysis for LLM extractions
+Rigorous Metrics:
+- Precision/recall/F1 for structured fields
+- Topic coherence (e.g., C_v) for clustering
+- QA accuracy vs. keyword search
+- Calibration / error analysis of LLM outputs
 
-See `scripts/nlp_analysis.py` and `llm_client.py` for implementation details.
+See `scripts/nlp_analysis.py`, `scripts/categorical_analysis.py`, and `llm_client.py` for implementation details.  
 
-## Repository Structure & Results Organization
+## Repository Structure
 
-All data and results are organized for clarity and reproducibility:
-
-```
+```text
 config.py
 extract_clinical_trials.py
 llm_client.py
 MODEL_COMPARISON.md
-requirements.txt
 README.md
+requirements.txt
 
 scripts/
-    categorical_analysis.py      # Categorical (structured) analysis
-    nlp_analysis.py              # NLP/text analysis
+  categorical_analysis.py
+  nlp_analysis.py
 
 data/
-    raw/                         # Raw fetched data from ClinicalTrials.gov
-        cachexia_studies_fetched.json
-    nlp/                         # NLP-specific extracted text and results
-        cachexia_studies_fetched_nlp_texts.json
-        nlp_extracted_attributes.json
-        nlp_analysis_summary.txt
-        phase_distribution.png
-        topic_modeling.png
-    categorical/                 # Categorical analysis results (future: plots, tables, etc.)
+  raw/          # Raw API JSON
+  nlp/          # NLP outputs (texts, plots, LLM files)
+  categorical/  # Structured analysis outputs
 ```
 
 ### Data & Results Folders
