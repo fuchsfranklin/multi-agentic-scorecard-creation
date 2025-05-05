@@ -29,7 +29,7 @@ cp .env.example .env
 # Edit .env and set OPENROUTER_API_KEY
 
 # 1) Fetch trials (raw JSON)
-python extract_clinical_trials.py --condition Cachexia --output-file data/raw/cachexia_studies_fetched.json
+python scripts/extract_clinical_trials.py --condition Cachexia --output-file data/raw/cachexia_studies_fetched.json
 
 # 2) Run categorical (structured) analysis
 python scripts/categorical_analysis.py
@@ -71,13 +71,12 @@ See `scripts/nlp_analysis.py`, `scripts/categorical_analysis.py`, and `llm_clien
 
 ```text
 config.py
-extract_clinical_trials.py
 llm_client.py
-MODEL_COMPARISON.md
-README.md
 requirements.txt
+README.md
 
 scripts/
+  extract_clinical_trials.py
   categorical_analysis.py
   nlp_analysis.py
 
@@ -85,6 +84,11 @@ data/
   raw/          # Raw API JSON
   nlp/          # NLP outputs (texts, plots, LLM files)
   categorical/  # Structured analysis outputs
+
+docs/
+  NLP_ANALYSIS_REPORT.md
+  MODEL_COMPARISON.md
+  images/       # Figures for documentation
 ```
 
 ### Data & Results Folders
@@ -98,7 +102,7 @@ data/
 - **scripts/categorical_analysis.py**: Runs structured/categorical analysis and saves to data/categorical/
 
 ### How to Run
-- To fetch and save new data: `python extract_clinical_trials.py ...`
+- To fetch and save new data: `python scripts/extract_clinical_trials.py ...`
 - To run NLP analysis: `python scripts/nlp_analysis.py`
 - To run categorical analysis: `python scripts/categorical_analysis.py`
 
