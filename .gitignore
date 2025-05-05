@@ -1,2 +1,5 @@
 # Ignore local config with API key
 config.py
+
+# Ignore environment variables file
+.env
