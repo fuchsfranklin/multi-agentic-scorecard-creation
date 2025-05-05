@@ -33,11 +33,65 @@ LLM Approaches under test:
 ## Quickstart
 
 ```bash
-git clone <repo>
-pip install -r requirements.txt  # e.g. requests, openai
-python extract_clinical_trials.py  # pulls data + formats prompts
-# Run each approach and collect outputs
+# 1. Clone repo
+ git clone <repo>
+ cd multi-agentic-scorecard-creation
+
+# 2. Install dependencies
+ pip install -r requirements.txt
+
+# 3. Configure API key
+ cp .env.example .env
+ # Edit .env and set OPENROUTER_API_KEY from your OpenRouter account (sign up at https://openrouter.ai/signup)
+
+# 4. Run extraction
+ python extract_clinical_trials.py NCT01234567
 ```
+
+## Repository Structure & Results Organization (2025)
+
+All data and results are organized for clarity and reproducibility:
+
+```
+config.py
+extract_clinical_trials.py
+llm_client.py
+MODEL_COMPARISON.md
+requirements.txt
+README.md
+
+scripts/
+    categorical_analysis.py      # Categorical (structured) analysis
+    nlp_analysis.py              # NLP/text analysis
+
+data/
+    raw/                         # Raw fetched data from ClinicalTrials.gov
+        cachexia_studies_fetched.json
+    nlp/                         # NLP-specific extracted text and results
+        cachexia_studies_fetched_nlp_texts.json
+        nlp_extracted_attributes.json
+        nlp_analysis_summary.txt
+        phase_distribution.png
+        topic_modeling.png
+    categorical/                 # Categorical analysis results (future: plots, tables, etc.)
+```
+
+### Data & Results Folders
+- **data/raw/**: Raw JSON from API (no processing)
+- **data/nlp/**: All outputs from NLP/text analysis (extracted text, attributes, plots, summaries)
+- **data/categorical/**: Outputs from categorical/structured analysis (plots, tables, etc.)
+
+### Scripts
+- **scripts/extract_clinical_trials.py**: Fetches and saves raw trial data and narrative text for NLP
+- **scripts/nlp_analysis.py**: Runs NLP attribute extraction, topic modeling, and saves results to data/nlp/
+- **scripts/categorical_analysis.py**: Runs structured/categorical analysis and saves to data/categorical/
+
+### How to Run
+- To fetch and save new data: `python extract_clinical_trials.py ...`
+- To run NLP analysis: `python scripts/nlp_analysis.py`
+- To run categorical analysis: `python scripts/categorical_analysis.py`
+
+All results are saved in their respective folders for easy navigation and reproducibility.
 
 ## References
 

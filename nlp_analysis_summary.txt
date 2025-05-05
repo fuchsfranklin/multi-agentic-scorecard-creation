@@ -1,0 +1,15 @@
+Study Phase Distribution (Top 10):
+  Unknown: 382
+  Phase Ii: 31
+  Phase I: 28
+  Phase Iii: 21
+  Phase II: 10
+  Phase III: 2
+  Phase IV: 1
+
+Top Words per Topic:
+  Topic 1: cancer, cachexia, patients, pancreatic, advanced, weight, loss, lung, chemotherapy, treatment
+  Topic 2: muscle, patients, protein, wasting, exercise, mass, skeletal, training, strength, ultrasound
+  Topic 3: children, months, child, intervention, malnutrition, food, nutrition, health, rutf, nutritional
+  Topic 4: safety, study, placebo, efficacy, dose, tolerability, subjects, anamorelin, drug, evaluate
+  Topic 5: megestrol, acetate, anorexia, weight, patients, aids, suspension, hiv, placebo, loss
