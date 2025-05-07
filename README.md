@@ -137,13 +137,11 @@ This project takes a phased approach to assess the feasibility of using LLMs to 
     *   Evaluating the potential for LLMs to automate or semi-automate the creation of novel, complex value frameworks in healthcare.
 
 **Underlying Technologies & Constraints:**
--   Utilizes baseline NLP methods (regex, TF-IDF) for initial data processing and comparison.
 -   LLM interactions managed via OpenRouter, respecting free-tier limits (1 request/minute, 50 requests/day) during development.
 
 **Rigorous Metrics:**
 -   Accuracy of extracted data points vs. human annotation or source documents.
 -   Correlation and agreement between LLM-generated scores and human-derived scores.
--   Precision, recall, and F1-score for specific information extraction tasks.
 -   Qualitative review of LLM reasoning and outputs.
 
 See `scripts/`, `llm_client.py`, and specific workflow scripts (to be developed for each LLM approach) for implementation details.
