@@ -39,7 +39,7 @@ This project will proceed in key phases, focusing on leveraging Large Language M
     *   **Objective**: To accurately replicate a well-established oncology value framework (e.g., similar to the ASCO Value Framework) using three distinct LLM strategies: Multi-Agent, Single LLM, and LLM with RAG.
     *   **Key Activities**:
         *   Define the specific attributes and calculation logic of the target ASCO-like framework based on published literature (e.g., Langdon et al., 2016).
-        *   Utilize the selected APIs (ClinicalTrials.gov, PubMed, OpenFDA) to gather necessary data (clinical trial results, efficacy, toxicity, etc.) for relevant oncology studies.
+        *   Utilize the sselected APIs (ClinicalTrials.gov, PubMed, OpenFDA) to gather necessary data (clinical trial results, efficacy, toxicity, etc.) for relevant oncology studies.
         *   Implement and rigorously test each of the three LLM approaches to extract the required data points and compute the Net Health Benefit (NHB) scores or equivalent outputs.
         *   Validate the LLM-generated scorecards against a human-derived ISPOR Scorecard standard to benchmark accuracy and identify areas for refinement.
 

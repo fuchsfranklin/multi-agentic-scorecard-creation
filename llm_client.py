@@ -35,11 +35,11 @@ def _save_usage(usage):
         json.dump(usage, f)
 
 class LLMClient:
-    def __init__(self, model="deepseek/deepseek-v3-base:free"):  # Use DeepSeek V3 Base free model
+    def __init__(self, model="openai/o3-mini"):  # Changed default model to o3-mini
         self.model = model
         self.url = f"{API_HOST}/chat/completions"
 
-    def generate(self, prompt: str, max_tokens: int = 4096, temperature: float = 0.0, max_retries: int = 3) -> str: # Increased max_tokens further
+    def generate(self, prompt: str, max_tokens: int = 4096, temperature: float = 0.0, max_retries: int = 3, expect_json: bool = False) -> str: # Added expect_json flag
         # Throttle and check daily limits
         with _usage_lock:
             usage = _load_usage()
@@ -69,10 +69,11 @@ class LLMClient:
         payload = {
             "model": self.model,
             "messages": [{"role": "user", "content": prompt}],
-            "response_format": {"type": "json_object"},
             "max_tokens": max_tokens,
             "temperature": temperature,
         }
+        if expect_json: # Conditionally add response_format
+            payload["response_format"] = {"type": "json_object"}
 
         retries = max_retries
         last_exception = None

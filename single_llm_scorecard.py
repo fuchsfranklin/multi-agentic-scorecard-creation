@@ -1,5 +1,7 @@
 import re
 from llm_client import LLMClient # Assuming llm_client.py provides LLMClient
+import os
+import datetime # Added datetime import
 
 # Trial descriptions are now extremely high-level, prompting the LLM to hypothesize details.
 
@@ -199,6 +201,9 @@ def validate_scorecard(scorecard_response):
         # "all_formulas_shown": check_formulas_present(scorecard_response) # Detailed check moved to main
     }
 
+# Define the path for the results file at the top level
+RESULTS_FILE_PATH = "single_llm_scorecard_results.md"
+
 def main():
     # Initialize your LLMClient.
     # This might require API keys or specific model configurations
@@ -217,6 +222,13 @@ def main():
         print("Please ensure your llm_client.py is correctly set up, OPENROUTER_API_KEY environment variable is set, and any necessary model_name is specified if not defaulted in LLMClient.")
         return
 
+    # Open the results file in write mode to clear it for the new run and write initial header
+    with open(RESULTS_FILE_PATH, "w", encoding="utf-8") as results_file:
+        print(f"Results will be saved to: {RESULTS_FILE_PATH}")
+        results_file.write(f"# ASCO-like Scorecard Generation Results (Single LLM Approach)\n\n")
+        results_file.write(f"Date Generated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+        results_file.write("---\n\n")
+
     for trial in TRIAL_DESCRIPTIONS:
         print(f"--- Generating Scorecard for: {trial['name']} ---")
         print(f"Scenario Hint: {trial['scenario_hint']}")
@@ -231,6 +243,13 @@ def main():
         print("\n--- Generated Scorecard (Markdown) ---")
         print(generated_scorecard_markdown)
         
+        # Append the current scorecard to the results file
+        with open(RESULTS_FILE_PATH, "a", encoding="utf-8") as results_file:
+            results_file.write(f"## Scorecard: {trial['name']}\n\n")
+            results_file.write(f"**Scenario Hint:** {trial['scenario_hint']}\n\n")
+            results_file.write(generated_scorecard_markdown)
+            results_file.write("\n\n---\n\n")
+
         print("\n--- Validation Results ---")
         validation = validate_scorecard(generated_scorecard_markdown)
         print(f"Scorecard Structurally Complete (key elements found): {validation['complete']}")
@@ -260,6 +279,7 @@ def main():
         print(f"  Formula likely present for Toxicity Score: {formulas_check['Toxicity Score']}")
         print("--------------------------------------------------\n")
 
+    print(f"All scorecards generated and saved to {RESULTS_FILE_PATH}")
+
 if __name__ == "__main__":
     main()
-``` 
