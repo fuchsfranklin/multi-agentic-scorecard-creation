@@ -2,14 +2,18 @@ import argparse
 import requests
 import sys
 import json
-from typing import Optional
+from typing import Optional, List, Dict
 from llm_client import LLMClient, DailyRateLimitError # Import the custom exception
+from Bio import Entrez
+import time # For rate limiting PubMed requests
 
+# Configure Entrez for PubMed API
+Entrez.email = "your_email@example.com"  # Replace with a valid email
 
-def search_studies(drug: Optional[str] = None, condition: Optional[str] = None, max_studies: int = 1000) -> list[dict]:
+def search_studies_clinicaltrials_gov(drug: Optional[str] = None, condition: Optional[str] = None, max_studies: int = 1000) -> List[Dict]:
     """Searches ClinicalTrials.gov v2 API for studies matching drug and/or condition."""
     if not drug and not condition:
-        raise ValueError("At least one of --drug or --condition must be provided.")
+        raise ValueError("At least one of --drug or --condition must be provided for ClinicalTrials.gov search.")
 
     all_studies = []
     page_token = None
@@ -20,7 +24,6 @@ def search_studies(drug: Optional[str] = None, condition: Optional[str] = None, 
         params = {
             "format": "json",
             "pageSize": min(page_size, max_studies - len(all_studies)),
-            # Only include query params if they are provided
             **({"query.intr": drug} if drug else {}),
             **({"query.cond": condition} if condition else {}),
         }
@@ -31,71 +34,118 @@ def search_studies(drug: Optional[str] = None, condition: Optional[str] = None, 
             search_terms = f"drug='{drug}'" if drug else ""
             if condition:
                 search_terms += f"{' and ' if drug else ''}condition='{condition}'"
-            print(f"Fetching studies {len(all_studies)+1}-{len(all_studies)+params['pageSize']} for {search_terms}...", file=sys.stderr)
+            print(f"Fetching studies from ClinicalTrials.gov {len(all_studies)+1}-{len(all_studies)+params['pageSize']} for {search_terms}...", file=sys.stderr)
             resp = requests.get(base_url, params=params)
             resp.raise_for_status()
             data = resp.json()
         except requests.HTTPError as e:
-            print(f"Error searching studies ({search_terms}): {e}", file=sys.stderr)
+            print(f"Error searching ClinicalTrials.gov ({search_terms}): {e}", file=sys.stderr)
             break # Stop pagination on error
 
         studies_on_page = data.get("studies", [])
         if not studies_on_page:
-            print("No more studies found.", file=sys.stderr)
+            print("No more studies found on ClinicalTrials.gov.", file=sys.stderr)
             break
 
         all_studies.extend(studies_on_page)
         page_token = data.get("nextPageToken")
 
         if not page_token:
-            print("Reached last page of results.", file=sys.stderr)
+            print("Reached last page of ClinicalTrials.gov results.", file=sys.stderr)
             break
 
-    print(f"Retrieved {len(all_studies)} studies total.", file=sys.stderr)
+    print(f"Retrieved {len(all_studies)} studies total from ClinicalTrials.gov.", file=sys.stderr)
     return all_studies
 
 
-def extract_attributes(study_json: dict, llm: LLMClient) -> Optional[dict]:
-    # Serialize study JSON cleanly
-    study_str = json.dumps(study_json, indent=2)
-    nct_id = study_json.get("protocolSection", {}).get("identificationModule", {}).get("nctId", "UNKNOWN_NCTID")
-    prompt = f"""
-Extract the following attributes from this clinical trial JSON:
-- Study Phase Distribution
-- Target Enrollment Size
-- Primary Endpoint Type
-- Intervention Model
-- Condition/Disease Focus
-- Study Status
-
-Return a JSON object with those fields.
-
-Study data:
-{study_str}
-"""
-    # No try-except here for DailyRateLimitError, let it propagate up
+def search_pubmed_by_nctid(nct_id: str, max_results: int = 10) -> List[Dict]:
+    """Searches PubMed for publications related to a given NCT ID."""
+    if not nct_id:
+        return []
+    print(f"Searching PubMed for NCT ID: {nct_id}...", file=sys.stderr)
+    publications = []
     try:
-        response_text = llm.generate(prompt)
-        if not response_text: # Handle case where generate returns empty string after retries/errors
-             print(f"Warning: Failed to get LLM response for {nct_id} after retries.", file=sys.stderr)
-             return None
-        # Attempt to parse the LLM response as JSON
-        scorecard = json.loads(response_text)
-        scorecard["NCTID"] = nct_id # Add NCTID for reference
-        return scorecard
-    except json.JSONDecodeError:
-        print(f"Warning: LLM response for {nct_id} was not valid JSON: {response_text[:100]}...", file=sys.stderr)
-        return None
-    except Exception as e:
-        # Catch other potential errors during LLM processing or JSON parsing
-        # Exclude DailyRateLimitError as it's handled in main
-        if not isinstance(e, DailyRateLimitError):
-             print(f"Error processing study {nct_id} with LLM: {e}", file=sys.stderr)
-        # Re-raise DailyRateLimitError if it somehow gets caught here (shouldn't)
-        else:
-            raise
-        return None
+        handle = Entrez.esearch(db="pubmed", term=f"{nct_id}[Secondary Source ID]", retmax=str(max_results))
+        record = Entrez.read(handle)
+        handle.close()
+        pmids = record["IdList"]
 
+        if not pmids:
+            print(f"No PubMed publications found for NCT ID: {nct_id}", file=sys.stderr)
+            return []
+
+        print(f"Found {len(pmids)} PMIDs for {nct_id}. Fetching details...", file=sys.stderr)
+        # Fetch summaries for each PMID
+        handle = Entrez.efetch(db="pubmed", id=pmids, rettype="abstract", retmode="xml")
+        records = Entrez.read(handle)
+        handle.close()
+        
+        for pubmed_article in records['PubmedArticle']:
+            article = pubmed_article['MedlineCitation']['Article']
+            title = article.get('ArticleTitle', 'N/A')
+            abstract_parts = article.get('Abstract', {}).get('AbstractText', [])
+            abstract = "\n".join([str(part) for part in abstract_parts]) if abstract_parts else 'N/A'
+            pmid = str(pubmed_article['MedlineCitation']['PMID'])
+            
+            # Attempt to get DOI
+            doi = None
+            if 'ELocationID' in article:
+                for elocation in article['ELocationID']:
+                    if elocation.attributes.get('EIdType') == 'doi':
+                        doi = str(elocation)
+                        break
+            
+            publications.append({
+                "pmid": pmid,
+                "title": title,
+                "abstract": abstract,
+                "doi": doi
+            })
+            # Respect NCBI rate limits (max 3 requests per second without API key, 10 with)
+            time.sleep(0.4) # A bit more conservative
+        print(f"Fetched details for {len(publications)} publications from PubMed for {nct_id}.", file=sys.stderr)
+
+    except Exception as e:
+        print(f"Error searching PubMed for {nct_id}: {e}", file=sys.stderr)
+    return publications
+
+def search_openfda_drug_events(drug_name: str, limit: int = 5) -> Dict:
+    """Searches OpenFDA for adverse drug events related to a drug name."""
+    if not drug_name:
+        return {}
+    print(f"Searching OpenFDA for adverse events related to: {drug_name}...", file=sys.stderr)
+    # Basic search, might need refinement for accuracy (e.g., using brand_name or generic_name fields)
+    # This endpoint searches patient.drug.medicinalproduct
+    url = f"https://api.fda.gov/drug/event.json?search=patient.drug.medicinalproduct:\"{drug_name}\"&limit={limit}"
+    try:
+        resp = requests.get(url)
+        resp.raise_for_status()
+        data = resp.json()
+        print(f"Found {len(data.get('results', []))} adverse event reports on OpenFDA for {drug_name}.", file=sys.stderr)
+        return data
+    except requests.HTTPError as e:
+        print(f"Error searching OpenFDA for drug '{drug_name}': {e}", file=sys.stderr)
+    except Exception as e:
+        print(f"An unexpected error occurred while searching OpenFDA for {drug_name}: {e}", file=sys.stderr)
+    return {}
+
+def extract_drug_names_from_study(study_data: Dict) -> List[str]:
+    """Extracts intervention names (potential drug names) from a ClinicalTrials.gov study object."""
+    names = set()
+    try:
+        interventions = study_data.get("protocolSection", {}).get("armsInterventionsModule", {}).get("interventions", [])
+        for intervention in interventions:
+            if intervention.get("type", "").lower() == "drug" and intervention.get("name"):
+                names.add(intervention["name"])
+    except Exception as e:
+        print(f"Error extracting drug names: {e}", file=sys.stderr)
+    return list(names)
+
+# def extract_attributes(study_json: dict, llm: LLMClient) -> Optional[dict]:
+#     # ... existing LLM extraction code ...
+#     # This function will be revised or replaced based on the new strategy's requirements
+#     # For now, it's commented out from the main workflow.
+#     pass
 
 def extract_study_text_fields(study: dict) -> dict:
     protocol = study.get("protocolSection", {})
@@ -132,87 +182,76 @@ def extract_study_narrative_text(study: dict) -> dict:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Fetch clinical trial data and/or extract scorecards via OpenRouter."
+        description="Fetch data from ClinicalTrials.gov, PubMed, and OpenFDA for oncology value scorecard creation."
     )
-    # Input/Output file arguments
-    parser.add_argument("--input-file", help="Path to JSON file containing previously fetched studies.")
-    parser.add_argument("--output-file", help="Path to save fetched studies as a JSON file (skips LLM processing).")
+    parser.add_argument("--output-file", required=True, help="Path to save combined fetched data as a JSON file.")
 
-    # Search arguments (only needed if not using --input-file)
-    search_group = parser.add_argument_group('Search Criteria (used if --input-file is not provided)')
-    search_group.add_argument("--drug", help="Drug name to search (e.g., ponsegramab)")
-    search_group.add_argument("--condition", help="Condition/disease area (e.g., 'Cachexia')")
-    search_group.add_argument("--max-studies", type=int, default=1000, help="Maximum number of studies to fetch/process")
+    # Search arguments
+    search_group = parser.add_argument_group('Search Criteria for ClinicalTrials.gov')
+    search_group.add_argument("--drug", help="Drug name to search on ClinicalTrials.gov (e.g., ponsegramab)")
+    search_group.add_argument("--condition", help="Condition/disease area for ClinicalTrials.gov (e.g., 'Cachexia')")
+    search_group.add_argument("--max-studies-ctgov", type=int, default=10, help="Maximum number of studies to fetch from ClinicalTrials.gov")
+    search_group.add_argument("--max-pubmed-results", type=int, default=5, help="Maximum number of PubMed results per NCT ID")
+    search_group.add_argument("--max-openfda-events", type=int, default=5, help="Maximum number of adverse event reports per drug from OpenFDA")
+
 
     args = parser.parse_args()
 
-    studies = []
+    if not args.drug and not args.condition:
+        parser.error("At least one of --drug or --condition must be specified for ClinicalTrials.gov search.")
 
-    # Mode 1: Load from file
-    if args.input_file:
-        print(f"Loading studies from {args.input_file}...", file=sys.stderr)
-        try:
-            with open(args.input_file, 'r') as f:
-                studies = json.load(f)
-            print(f"Loaded {len(studies)} studies.", file=sys.stderr)
-        except FileNotFoundError:
-            print(f"Error: Input file not found: {args.input_file}", file=sys.stderr)
-            sys.exit(1)
-        except json.JSONDecodeError:
-            print(f"Error: Could not decode JSON from input file: {args.input_file}", file=sys.stderr)
-            sys.exit(1)
+    # 1. Fetch from ClinicalTrials.gov
+    ct_studies = search_studies_clinicaltrials_gov(args.drug, args.condition, args.max_studies_ctgov)
 
-    # Mode 2: Fetch from API
-    else:
-        if not args.drug and not args.condition:
-            parser.error("If --input-file is not used, at least one of --drug or --condition must be specified.")
-        studies = search_studies(args.drug, args.condition, args.max_studies)
-
-        # --- NEW: Extract and save all text fields for NLP ---
-        nlp_texts = [extract_study_narrative_text(study) for study in studies]
-        if args.output_file:
-            print(f"Saving {len(studies)} fetched studies to {args.output_file}...", file=sys.stderr)
-            try:
-                with open(args.output_file, 'w') as f:
-                    json.dump(studies, f, indent=2)
-                # Also save the extracted text fields for NLP
-                nlp_file = args.output_file.replace('.json', '_nlp_texts.json')
-                with open(nlp_file, 'w') as f:
-                    json.dump(nlp_texts, f, indent=2)
-                print(f"Save complete. NLP text fields saved to {nlp_file}. Exiting without LLM processing.", file=sys.stderr)
-                sys.exit(0)
-            except IOError as e:
-                print(f"Error saving studies to {args.output_file}: {e}", file=sys.stderr)
-                sys.exit(1)
-
-    # --- LLM Processing --- (Only runs if --output-file was NOT specified)
-    if not studies:
-        print("No studies to process.", file=sys.stderr)
+    if not ct_studies:
+        print("No studies found on ClinicalTrials.gov. Exiting.", file=sys.stderr)
         sys.exit(0)
 
-    print("Proceeding with LLM processing...", file=sys.stderr)
-    llm = LLMClient()
-    all_scorecards = []
+    enriched_studies_data = []
+
+    for i, study_data in enumerate(ct_studies):
+        nct_id = study_data.get("protocolSection", {}).get("identificationModule", {}).get("nctId", f"UNKNOWN_NCTID_{i}")
+        print(f"\nProcessing study {i+1}/{len(ct_studies)}: {nct_id}", file=sys.stderr)
+        
+        current_study_enriched_data = {
+            "clinical_trial_data": study_data,
+            "pubmed_publications": [],
+            "openfda_events": {} # Using a dict to store events per drug name
+        }
+
+        # 2. Fetch from PubMed using NCT ID
+        if nct_id and not nct_id.startswith("UNKNOWN"):
+            current_study_enriched_data["pubmed_publications"] = search_pubmed_by_nctid(nct_id, args.max_pubmed_results)
+        
+        # 3. Fetch from OpenFDA using extracted drug names
+        # Basic extraction, could be improved (e.g. with LLM for more robust name identification)
+        drug_names_in_study = extract_drug_names_from_study(study_data)
+        if drug_names_in_study:
+            print(f"Found potential drug names in {nct_id}: {', '.join(drug_names_in_study)}", file=sys.stderr)
+            for drug_name_candidate in drug_names_in_study:
+                # To avoid redundant calls for the same drug if it appears multiple times or in different forms
+                # A more sophisticated normalization might be needed here.
+                if drug_name_candidate and drug_name_candidate.lower() not in [k.lower() for k in current_study_enriched_data["openfda_events"]]:
+                    fda_events = search_openfda_drug_events(drug_name_candidate, args.max_openfda_events)
+                    if fda_events and fda_events.get("results"):
+                         current_study_enriched_data["openfda_events"][drug_name_candidate] = fda_events["results"]
+        else:
+            print(f"No drug names clearly identified in {nct_id} for OpenFDA search.", file=sys.stderr)
+            
+        enriched_studies_data.append(current_study_enriched_data)
+
+    # Save all combined data
+    print(f"\nSaving all enriched study data to {args.output_file}...", file=sys.stderr)
     try:
-        # Limit processing if max_studies was less than loaded count
-        studies_to_process = studies[:args.max_studies] if args.input_file else studies
-        total_to_process = len(studies_to_process)
+        with open(args.output_file, 'w') as f:
+            json.dump(enriched_studies_data, f, indent=2)
+        print(f"Save complete. {len(enriched_studies_data)} studies processed.", file=sys.stderr)
+    except IOError as e:
+        print(f"Error saving data to {args.output_file}: {e}", file=sys.stderr)
+        sys.exit(1)
 
-        for i, study in enumerate(studies_to_process):
-            nct_id = study.get("protocolSection", {}).get("identificationModule", {}).get("nctId", f"UNKNOWN_{i}")
-            print(f"Processing study {i+1}/{total_to_process}: {nct_id}...", file=sys.stderr)
-            scorecard = extract_attributes(study, llm)
-            if scorecard:
-                all_scorecards.append(scorecard)
-
-    except DailyRateLimitError as e:
-        print(f"Stopping processing due to daily rate limit: {e}", file=sys.stderr)
-    except Exception as e:
-        print(f"An unexpected error occurred during processing: {e}", file=sys.stderr)
-
-    # Print the final list of scorecards gathered
-    print(json.dumps(all_scorecards, indent=2))
-
+    # The old LLM processing loop is removed.
+    # LLM-based analysis will be a separate, more focused step.
 
 if __name__ == "__main__":
     main()
