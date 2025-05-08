@@ -1,4 +1,12 @@
 requests
-biopython
-pandas
-numpy
+sentence-transformers
+lancedb
+pyarrow
+openai
+python-dotenv
+beautifulsoup4
+BioPython
+openpyxl
+scikit-learn
+matplotlib
+ipykernel

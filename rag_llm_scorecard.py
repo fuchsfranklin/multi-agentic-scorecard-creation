@@ -6,6 +6,7 @@ import json
 import logging
 import time
 import re
+from typing import List, Any # Changed Dict to dict, added Any
 
 # Third-party library imports
 # Ensure these are in your requirements.txt:
@@ -27,9 +28,10 @@ except ImportError:
     exit()
 
 try:
-    import chromadb
+    import lancedb
+    import pyarrow as pa
 except ImportError:
-    print("Please install chromadb: pip install chromadb")
+    print("Please install lancedb and pyarrow: pip install lancedb pyarrow")
     exit()
 
 try:
@@ -69,25 +71,27 @@ except ImportError:
         EXCLUDE_NCT_ID = None
         EXCLUDE_PMID = None
         TARGET_STUDY_DESCRIPTION = "A novel investigational drug (DrugX) for treating cancer cachexia, currently in Phase II clinical trials. Focus is on its impact on lean body mass and appetite."
+        LANCEDB_URI = "lancedb://path_to_your_lancedb"
+        VECTOR_DB_TABLE_NAME = "asco_trials_context_table"
+        EMBEDDING_MODEL_FOR_RAG = 'all-MiniLM-L6-v2'
+        EMBEDDING_DIMENSION = 384
+        RAG_NUM_RESULTS = 5
 
     config = DummyConfig()
 
 
 # --- Configuration ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__) # ADDED logger instance
 
 Entrez.email = getattr(config, "ENTREZ_EMAIL", "your.email@example.com")
 if not Entrez.email or Entrez.email == "your.email@example.com":
     logging.warning("Please set your email in config.py for NCBI Entrez (ENTREZ_EMAIL).")
 
 NCBI_API_KEY = getattr(config, "NCBI_API_KEY", None)
-if NCBI_API_KEY:
-    Entrez.api_key = NCBI_API_KEY
 
-# ClinicalTrials.gov new API endpoint
-CTGOV_BASE_URL = "https://clinicaltrials.gov/api/v2/studies"
-# OpenFDA base URL
-OPENFDA_BASE_URL = "https://api.fda.gov"
+if NCBI_API_KEY:
+    Entrez.api_key = NCBI_API_KEY  # Use NCBI API key for higher rate limits and access
 
 # RAG Configuration
 EMBEDDING_MODEL_NAME = 'all-MiniLM-L6-v2' # Efficient and good quality
@@ -117,63 +121,54 @@ def chunk_text(text, chunk_size=500, chunk_overlap=50):
     return chunks
 
 # --- API Data Fetching Functions ---
-def fetch_clinical_trials_data(keywords, max_results=5, exclude_nct_id=None):
-    """Fetches data from ClinicalTrials.gov API v2."""
-    logging.info(f"Fetching ClinicalTrials.gov data for keywords: {keywords}")
-    query_parts = [f'"{k}"' for k in keywords]
-    query_str = " AND ".join(query_parts)
-    if exclude_nct_id:
-        query_str += f" NOT {exclude_nct_id}"
-    
-    params = {
-        'query.cond': query_str,
-        'pageSize': max_results,
-        'format': 'json'
-    }
-    try:
-        response = requests.get(CTGOV_BASE_URL, params=params, timeout=30)
-        response.raise_for_status()
-        data = response.json()
-        studies = data.get('studies', [])
-        
-        documents = []
-        for study_wrapper in studies:
-            study = study_wrapper.get('protocolSection', {})
-            nct_id = study.get('identificationModule', {}).get('nctId', 'N/A')
-            title = study.get('identificationModule', {}).get('officialTitle', 'No title')
-            brief_summary = study.get('descriptionModule', {}).get('briefSummary', '')
-            detailed_description = study.get('descriptionModule', {}).get('detailedDescription', '')
-            
-            text_content = f"Clinical Trial: {nct_id}\nTitle: {title}\nSummary: {clean_text(brief_summary)}\nDescription: {clean_text(detailed_description)}"
-            documents.append({"id": f"ct_{nct_id}", "text": text_content, "source": "ClinicalTrials.gov"})
-        logging.info(f"Fetched {len(documents)} documents from ClinicalTrials.gov.")
-        return documents
-    except requests.exceptions.RequestException as e:
-        logging.error(f"ClinicalTrials.gov API request failed: {e}")
-        return []
-    except json.JSONDecodeError as e:
-        logging.error(f"Failed to parse JSON from ClinicalTrials.gov: {e}")
-        return []
-
-
-def fetch_pubmed_data(keywords, max_results=5, exclude_pmid=None):
+def fetch_pubmed_data(keywords, max_results=5, exclude_pmid=None, scenario_name_for_logging="Generic PubMed Fetch"): # MODIFIED: Added scenario_name_for_logging
     """Fetches data from PubMed."""
-    logging.info(f"Fetching PubMed data for keywords: {keywords}")
-    query = " AND ".join(f'"{k}"[Title/Abstract]' for k in keywords)
+    logging.info(f"[{scenario_name_for_logging}] Fetching PubMed data with keywords: {keywords}, max_results={max_results}")
+    # Broad search: combine keywords with OR without quotes
+    query = " OR ".join(keywords)
 
     try:
-        handle = Entrez.esearch(db="pubmed", term=query, retmax=str(max_results * 2)) 
+        # Perform search with retmax higher than needed to allow selection
+        handle = Entrez.esearch(db="pubmed", term=query, retmax=str(max_results * 4))
         record = Entrez.read(handle)
         handle.close()
-        ids = record["IdList"]
+        total_found = int(record.get("Count", 0))
+        logging.info(f"[{scenario_name_for_logging}] Total PubMed articles found: {total_found} for query: {query}")
+        ids = record.get("IdList", [])
 
         if exclude_pmid and str(exclude_pmid) in ids:
             ids.remove(str(exclude_pmid))
         ids = ids[:max_results]
 
+        # Fallback: if no IDs from combined query, search each keyword separately
         if not ids:
-            logging.info("No PubMed articles found for the query.")
-            return []
+            logging.warning(f"[{scenario_name_for_logging}] No articles from combined query. Falling back to individual keywords.")
+            ids = []
+            for k in keywords:
+                if len(ids) >= max_results:
+                    break
+                sub_handle = Entrez.esearch(db="pubmed", term=k, retmax=str(max_results))
+                sub_record = Entrez.read(sub_handle)
+                sub_handle.close()
+                for sid in sub_record.get("IdList", []):
+                    if exclude_pmid and sid == str(exclude_pmid):
+                        continue
+                    if sid not in ids:
+                        ids.append(sid)
+                    if len(ids) >= max_results:
+                        break
+            if not ids:
+                logging.info(f"[{scenario_name_for_logging}] No PubMed articles found in fallback search. Query: {query}")
+                # Final fallback: search for basic drug name with 'clinical trial'
+                basic_term = f"{keywords[0]} clinical trial"
+                logging.warning(f"[{scenario_name_for_logging}] Final fallback search using term: '{basic_term}'")
+                fb_handle = Entrez.esearch(db="pubmed", term=basic_term, retmax=str(max_results))
+                fb_record = Entrez.read(fb_handle)
+                fb_handle.close()
+                ids = fb_record.get("IdList", [])[:max_results]
+                if not ids:
+                    logging.error(f"[{scenario_name_for_logging}] No articles found in final fallback search. Aborting PubMed fetch.")
+                    return []
 
         handle = Entrez.efetch(db="pubmed", id=ids, rettype="xml", retmode="text")
         xml_records = Entrez.read(handle)
@@ -195,166 +190,120 @@ def fetch_pubmed_data(keywords, max_results=5, exclude_pmid=None):
                 text_content = f"PubMed Article: {pmid}\nTitle: {clean_text(title)}\nAbstract: {clean_text(abstract)}"
                 documents.append({"id": f"pmid_{pmid}", "text": text_content, "source": "PubMed"})
             except Exception as e:
-                logging.warning(f"Error processing PubMed article XML for PMID {pmid if 'pmid' in locals() else 'unknown'}: {e}")
+                logging.warning(f"[{scenario_name_for_logging}] Error processing PubMed article XML for PMID {pmid if 'pmid' in locals() else 'unknown'}: {e}") # MODIFIED: Enhanced logging
                 continue
         
-        logging.info(f"Fetched {len(documents)} documents from PubMed.")
+        logging.info(f"[{scenario_name_for_logging}] Fetched {len(documents)} documents from PubMed using IDs: {ids}") # MODIFIED: Enhanced logging
         return documents
     except Exception as e:
-        logging.error(f"PubMed request failed: {e}")
+        logging.error(f"[{scenario_name_for_logging}] PubMed request failed: {e}") # MODIFIED: Enhanced logging
         return []
 
-def fetch_openfda_data(drug_keywords=None, event_keywords=None, max_results=5):
-    """Fetches drug adverse event data from OpenFDA."""
-    logging.info(f"Fetching OpenFDA data for drugs: {drug_keywords}, events: {event_keywords}")
-    search_terms = []
-    if drug_keywords:
-        drug_query = " OR ".join([f'"{k}"' for k in drug_keywords])
-        search_terms.append(f'(patient.drug.openfda.brand_name:({drug_query}) OR patient.drug.openfda.generic_name:({drug_query}))')
-    if event_keywords:
-        event_query = " OR ".join([f'"{k}"' for k in event_keywords])
-        search_terms.append(f'patient.reaction.reactionmeddrapt:({event_query})')
+# --- Vector DB Setup (LanceDB) ---
+def setup_vector_db(embedding_dimension):
+    """Initializes and returns a LanceDB table."""
+    logging.info(f"Initializing LanceDB at URI: {config.LANCEDB_URI}")
+    db = lancedb.connect(config.LANCEDB_URI)
     
-    if not search_terms:
-        logging.warning("No keywords provided for OpenFDA search.")
-        return []
-        
-    query_str = " AND ".join(search_terms)
-    
-    url = f"{OPENFDA_BASE_URL}/drug/event.json"
-    params = {'search': query_str, 'limit': max_results}
+    # Define schema using the embedding dimension
+    schema = pa.schema([
+        pa.field("id", pa.string()),
+        pa.field("text", pa.string()),
+        pa.field("vector", pa.list_(pa.float32(), embedding_dimension))
+        # Add other metadata fields here if needed, e.g., pa.field("source", pa.string())
+    ])
     
     try:
-        response = requests.get(url, params=params, timeout=30)
-        response.raise_for_status()
-        data = response.json()
-        results = data.get('results', [])
+        # Try to open the table
+        table = db.open_table(config.VECTOR_DB_TABLE_NAME)
+        logging.info(f"Opened existing LanceDB table: {config.VECTOR_DB_TABLE_NAME}")
+    except FileNotFoundError: # LanceDB raises FileNotFoundError if URI/table path doesn't exist for open_table
+        logging.info(f"LanceDB table {config.VECTOR_DB_TABLE_NAME} not found, creating new table.")
+        table = db.create_table(config.VECTOR_DB_TABLE_NAME, schema=schema, mode="overwrite") # Use "create" if "overwrite" is too aggressive
+        logging.info(f"Created new LanceDB table: {config.VECTOR_DB_TABLE_NAME}")
+    except Exception as e: # Catch other potential lancedb errors during open
+        logging.error(f"Error opening LanceDB table {config.VECTOR_DB_TABLE_NAME}: {e}. Attempting to create.")
+        # Fallback to create if open fails for other reasons, ensure schema is passed
+        table = db.create_table(config.VECTOR_DB_TABLE_NAME, schema=schema, mode="overwrite")
+        logging.info(f"Re-created LanceDB table: {config.VECTOR_DB_TABLE_NAME} after error.")
         
-        documents = []
-        for i, report in enumerate(results):
-            report_id = report.get('safetyreportid', f"fda_report_{i}")
-            reactions = [r.get('reactionmeddrapt', 'N/A') for r in report.get('patient', {}).get('reaction', [])]
-            drugs = [d.get('medicinalproduct', 'N/A') for d in report.get('patient', {}).get('drug', [])]
-            
-            text_content = (f"OpenFDA Adverse Event Report: {report_id}\n"
-                            f"Reactions: {', '.join(reactions)}\n"
-                            f"Drugs Involved: {', '.join(drugs)}")
-            documents.append({"id": f"fda_{report_id}", "text": text_content, "source": "OpenFDA"})
-        logging.info(f"Fetched {len(documents)} documents from OpenFDA.")
-        return documents
-    except requests.exceptions.RequestException as e:
-        logging.error(f"OpenFDA API request failed: {e}")
-        return []
-    except json.JSONDecodeError as e:
-        logging.error(f"Failed to parse JSON from OpenFDA: {e}")
-        return []
+    return table
 
-# --- Vector Database Functions ---
-_embedding_model_cache = None
-
-def get_embedding_model(model_name=EMBEDDING_MODEL_NAME):
-    global _embedding_model_cache
-    if (_embedding_model_cache is None) or (_embedding_model_cache[0] != model_name):
-        try:
-            _embedding_model_cache = (model_name, SentenceTransformer(model_name))
-            logging.info(f"Embedding model '{model_name}' loaded.")
-        except Exception as e:
-            logging.error(f"Failed to load SentenceTransformer model '{model_name}': {e}")
-            raise
-    return _embedding_model_cache[1]
-
-class ChromaDBEmbeddingFunction(chromadb.EmbeddingFunction):
-    def __init__(self, model_name=EMBEDDING_MODEL_NAME):
-        self.model = get_embedding_model(model_name)
-
-    def __call__(self, input_texts: chromadb.Documents) -> chromadb.Embeddings:
-        return self.model.encode(list(input_texts), convert_to_tensor=False).tolist()
-
-def setup_vector_db(db_path=CHROMA_DB_PATH, collection_name=COLLECTION_NAME):
-    """Sets up or connects to ChromaDB."""
-    try:
-        client = chromadb.PersistentClient(path=db_path)
-        embedding_function = ChromaDBEmbeddingFunction()
-        collection = client.get_or_create_collection(
-            name=collection_name,
-            embedding_function=embedding_function
-        )
-        logging.info(f"ChromaDB collection '{collection_name}' at '{db_path}' ready.")
-        return collection
-    except Exception as e:
-        logging.error(f"Failed to setup ChromaDB: {e}")
-        raise
-
-def ingest_documents_to_db(documents, vector_db_collection):
-    """Chunks, embeds, and ingests documents into the vector database."""
+# --- Data Ingestion (LanceDB) ---
+def ingest_documents_to_db(documents, table, sentence_model):
+    """Embeds documents and ingests them into the LanceDB table."""
     if not documents:
-        logging.warning("No documents to ingest.")
+        logging.info("No documents to ingest into LanceDB.")
         return
 
-    all_chunks = []
-    all_metadatas = []
-    all_ids = []
+    logging.info(f"Starting ingestion of {len(documents)} documents into LanceDB table: {table.name}")
     
-    for doc_idx, doc in enumerate(documents):
-        text_chunks = chunk_text(doc['text'])
-        for chunk_idx, chunk in enumerate(text_chunks):
-            if not chunk.strip(): 
+    data_to_add = []
+    for i, doc in enumerate(documents):
+        try:
+            # Ensure text is not empty or None
+            doc_text = doc.get('text')
+            if not doc_text or not isinstance(doc_text, str) or not doc_text.strip():
+                logging.warning(f"Document ID {doc.get('id', 'N/A')} has empty or invalid text. Skipping.")
                 continue
-            unique_id = f"{doc['id']}_chunk{chunk_idx}"
-            all_chunks.append(chunk)
-            all_metadatas.append({"source": doc['source'], "original_id": doc['id']})
-            all_ids.append(unique_id)
 
-    if not all_chunks:
-        logging.warning("No valid chunks generated from documents.")
-        return
-
-    try:
-        vector_db_collection.add(
-            documents=all_chunks,
-            metadatas=all_metadatas,
-            ids=all_ids
-        )
-        logging.info(f"Ingested {len(all_chunks)} chunks from {len(documents)} documents into ChromaDB.")
-    except Exception as e:
-        logging.error(f"Error ingesting documents into ChromaDB: {e}")
-
+            embedding = sentence_model.encode(doc_text, convert_to_tensor=False).tolist()
+            data_to_add.append({
+                "id": str(doc.get('id', f"unknown_id_{i}")), # Ensure ID is a string
+                "text": doc_text,
+                "vector": embedding
+                # Add other metadata fields here if they are part of your schema and doc structure
+                # "source": doc.get('source', 'unknown') 
+            })
+        except Exception as e:
+            logging.error(f"Failed to process or embed document ID {doc.get('id', 'N/A')} for LanceDB: {e}")
+            continue
+    
+    if data_to_add:
+        try:
+            table.add(data_to_add)
+            logging.info(f"Successfully added {len(data_to_add)} processed documents to LanceDB table: {table.name}") # MODIFIED: More specific log
+        except Exception as e:
+            logging.error(f"Error adding data to LanceDB table {table.name}: {e}")
+            # Depending on the error, you might want to retry or handle it differently
+    else:
+        logging.info(f"No valid data was processed to add to LanceDB table: {table.name}")
 
 # --- RAG and LLM Functions ---
-def query_vector_db(query_text, vector_db_collection, n_results=3):
+def query_vector_db(query_text, vector_db_table, sentence_model, n_results=3):
     """Queries the vector database for relevant document chunks."""
     try:
-        results = vector_db_collection.query(
-            query_texts=[query_text],
-            n_results=n_results,
-            include=['documents', 'metadatas'] 
-        )
-        retrieved_docs = []
-        if results and results.get('documents') and results.get('metadatas') and results['documents'][0]:
-            for i in range(len(results['documents'][0])):
-                doc_text = results['documents'][0][i]
-                metadata = results['metadatas'][0][i]
-                retrieved_docs.append(f"Source: {metadata.get('source', 'N/A')}\nContent: {doc_text}")
+        query_embedding = sentence_model.encode(query_text, convert_to_tensor=False).tolist()
         
-        logging.info(f"Retrieved {len(retrieved_docs)} chunks from vector DB for query: '{query_text[:50]}...'")
-        return retrieved_docs
+        # Query LanceDB
+        results_df = vector_db_table.search(query_embedding) \
+                                    .limit(n_results) \
+                                    .to_pandas() # Updated to_pandas()
+
+        # Ensure 'text' column exists and handle if it's missing
+        if 'text' in results_df.columns and not results_df.empty:
+            context_docs = results_df['text'].tolist()
+            logging.info(f"Retrieved {len(context_docs)} documents from LanceDB for query: '{query_text[:50]}...'")
+            return context_docs
+        else:
+            logging.warning(f"No documents returned from LanceDB for query: {query_text}, or 'text' column missing.")
+            if 'text' not in results_df.columns and not results_df.empty:
+                logging.warning(f"LanceDB search result does not contain a 'text' column. Available columns: {results_df.columns.tolist()}")
+            return []
     except Exception as e:
-        logging.error(f"Error querying ChromaDB: {e}")
+        logging.error(f"Error querying LanceDB: {e}")
         return []
 
-def generate_scorecard_table_with_rag(table_title, table_keywords_for_retrieval,
-                                      vector_db_collection, llm_client,
-                                      scenario_hint=""): # MODIFIED: Renamed target_study_summary to scenario_hint
+def generate_scorecard_table_with_rag(table_title, table_keywords_for_retrieval, 
+                                      vector_db_table, llm_client, sentence_model, scenario_hint=""):
     """
-    Generates an ASCO-style scorecard table using RAG for a specific trial.
-    'table_keywords_for_retrieval' are used to search the vector DB.
-    'scenario_hint' provides minimal context about the specific trial being evaluated.
+    Generates a single ASCO-style scorecard table using RAG with LanceDB.
     """
     logging.info(f"Generating RAG-based ASCO-style scorecard table for: {table_title}")
 
     # 1. Retrieve context from Vector DB
     retrieval_query = " ".join(table_keywords_for_retrieval)
-    retrieved_context_chunks = query_vector_db(retrieval_query, vector_db_collection, n_results=5)
+    retrieved_context_chunks = query_vector_db(retrieval_query, vector_db_table, sentence_model, n_results=5)
 
     if not retrieved_context_chunks:
         logging.warning(f"No context retrieved from Vector DB for '{table_title}'. Proceeding with scenario hint only.")
@@ -421,7 +370,7 @@ Generate the scorecard now for '{table_title}':
             logging.error("LLM client is not correctly configured or lacks a 'generate' method.")
             return f"Error: LLM client not configured for table: {table_title}"
 
-        response = llm_client.generate(prompt, model_name=LLM_MODEL_FOR_RAG)
+        response = llm_client.generate(prompt)
         logging.info(f"LLM response received for {table_title}.")
         return response
     except Exception as e:
@@ -430,7 +379,20 @@ Generate the scorecard now for '{table_title}':
 
 # --- Main Orchestration ---
 def main():
-    logging.info("Starting RAG-based ASCO-style scorecard creation process (PubMed only).") # MODIFIED
+    logging.info("Starting RAG-based ASCO-style scorecard creation process (PubMed only, using LanceDB).")
+
+    # Initialize SentenceTransformer model once
+    try:
+        logging.info(f"Loading SentenceTransformer model: {config.EMBEDDING_MODEL_FOR_RAG}")
+        sentence_model = SentenceTransformer(config.EMBEDDING_MODEL_FOR_RAG)
+        # Ensure EMBEDDING_DIMENSION in config matches the loaded model, or get it dynamically
+        # For this change, we'll rely on config.EMBEDDING_DIMENSION being correctly set.
+        # You could add: if sentence_model.get_sentence_embedding_dimension() != config.EMBEDDING_DIMENSION:
+        # logging.warning("Mismatch between model dimension and config.EMBEDDING_DIMENSION!")
+        logging.info(f"SentenceTransformer model loaded. Embedding dimension: {config.EMBEDDING_DIMENSION}")
+    except Exception as e:
+        logging.error(f"Failed to load SentenceTransformer model: {e}. This is critical for RAG. Exiting.")
+        return
 
     try:
         # Initialize LLMClient (expects OPENROUTER_API_KEY to be set as an environment variable)
@@ -441,9 +403,10 @@ def main():
         return
 
     try:
-        vector_db_collection = setup_vector_db()
+        # Pass the embedding dimension to setup_vector_db
+        vector_db_table = setup_vector_db(config.EMBEDDING_DIMENSION)
     except Exception as e:
-        logging.error(f"Halting due to vector database setup failure: {e}")
+        logging.error(f"Halting due to LanceDB setup failure: {e}")
         return
 
     # Define the four tables based on README.md, with minimal keywords for RAG
@@ -487,45 +450,63 @@ def main():
     
     EXCLUDE_PMID_OF_TARGET_STUDY = getattr(config, "EXCLUDE_PMID", None)
 
-    logging.info("Starting data fetching from PubMed...") # MODIFIED
+    logging.info("Starting data fetching from PubMed...")
     for table_def in scorecard_tables_definitions:
         title = table_def["title"]
-        logging.info(f"Fetching PubMed data for table: {title}")
-        
-        # MODIFIED: Only fetch from PubMed
+        logging.info(f"Fetching PubMed data for table: {title}") # Existing log
+
         if "pubmed" in table_def["api_keywords"]:
             pm_docs = fetch_pubmed_data(
                 table_def["api_keywords"]["pubmed"], 
-                max_results=5, # Increased max_results for PubMed as it's the only source
-                exclude_pmid=EXCLUDE_PMID_OF_TARGET_STUDY
+                max_results=5, 
+                exclude_pmid=EXCLUDE_PMID_OF_TARGET_STUDY,
+                scenario_name_for_logging=title # Pass scenario name for detailed logging
             )
+            logging.info(f"Retrieved {len(pm_docs)} documents from PubMed for scenario: {title}") # ADDED LOG
             all_fetched_documents.extend(pm_docs)
-            time.sleep(0.5) # Be respectful to APIs
+            time.sleep(0.5) 
         else:
             logging.warning(f"No PubMed keywords found for table: {title}")
             
     unique_documents_dict = {doc['id']: doc for doc in all_fetched_documents}
     unique_documents_list = list(unique_documents_dict.values())
-    logging.info(f"Total unique documents fetched from PubMed: {len(unique_documents_list)}") # MODIFIED
+    logging.info(f"Total unique documents fetched from PubMed: {len(unique_documents_list)}")
 
     if unique_documents_list:
-        logging.info("Starting data ingestion into Vector DB...")
-        ingest_documents_to_db(unique_documents_list, vector_db_collection)
+        logging.info("Starting data ingestion into LanceDB...")
+        # Pass the initialized sentence_model to ingest_documents_to_db
+        ingest_documents_to_db(unique_documents_list, vector_db_table, sentence_model)
+        logging.info("LanceDB ingestion process for fetched documents has concluded.") # ADDED LOG
     else:
-        logging.warning("No documents were fetched from PubMed. Vector DB will not be populated with new data.") # MODIFIED
+        logging.warning("No documents were fetched from PubMed. LanceDB will not be populated with new data.")
+
+    # After ingestion completion, verify records in vector DB
+    try:
+        # Count records by converting to pandas DataFrame
+        records_df = vector_db_table.to_pandas()
+        total_records = len(records_df)
+        logging.info(f"LanceDB table '{vector_db_table.name}' record count after ingestion: {total_records}")
+        if total_records == 0:
+            logging.error("No records found in LanceDB after ingestion. Aborting scorecard generation.")
+            return
+    except Exception as e:
+        logging.error(f"Failed to retrieve record count from LanceDB: {e}. Aborting.")
+        return
 
     # --- Step 2: Generate Scorecards using RAG ---
-    generated_scorecards_markdown = "# RAG-Based ASCO-Style Scorecards (PubMed Context Only)\n\n" # MODIFIED
+    generated_scorecards_markdown = "# RAG-Based ASCO-Style Scorecards (PubMed Context Only, LanceDB)\n\n" # MODIFIED
     for table_def in scorecard_tables_definitions:
         table_title = table_def["title"]
         rag_keywords = table_def["rag_query_keywords"]
         scenario_hint = table_def["scenario_hint_for_llm"]
         
+        # Pass the initialized sentence_model to generate_scorecard_table_with_rag
         markdown_table = generate_scorecard_table_with_rag(
             table_title=table_title,
             table_keywords_for_retrieval=rag_keywords,
-            vector_db_collection=vector_db_collection,
+            vector_db_table=vector_db_table, # This is now a LanceDB table object
             llm_client=llm_client,
+            sentence_model=sentence_model, # Pass the model
             scenario_hint=scenario_hint
         )
         generated_scorecards_markdown += f"## Scorecard for: {table_title}\n\n"
@@ -533,7 +514,7 @@ def main():
         generated_scorecards_markdown += markdown_table
         generated_scorecards_markdown += "\n\n---\n\n"
 
-    output_filename = "rag_llm_asco_scorecard_results_pubmed_only.md" # MODIFIED
+    output_filename = "rag_llm_asco_scorecard_results_pubmed_lancedb.md" # MODIFIED filename
     try:
         with open(output_filename, "w", encoding="utf-8") as f:
             f.write(generated_scorecards_markdown)
@@ -541,15 +522,15 @@ def main():
     except IOError as e:
         logging.error(f"Failed to write scorecard results to {output_filename}: {e}")
     
-    logging.info("RAG-based scorecard creation process (PubMed only) finished.") # MODIFIED
+    logging.info("RAG-based scorecard creation process (PubMed only, LanceDB) finished.")
 
 if __name__ == "__main__":
-    # Before running, ensure:
-    # 1. llm_client.py is correctly set up.
-    # 2. OPENROUTER_API_KEY environment variable is set.
-    # 3. config.py has ENTREZ_EMAIL.
-    # 4. (Optional) config.py has NCBI_API_KEY for higher PubMed rate limits.
-    # 5. (Optional) config.py has EXCLUDE_NCT_ID / EXCLUDE_PMID if you're evaluating a specific known study
-    #    (though for this RAG setup, the goal is to use general knowledge).
-    # 6. You have run `pip install requests biopython chromadb sentence-transformers`
+    # Configure logging
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    
+    # Set Entrez email
+    Entrez.email = config.ENTREZ_EMAIL
+    if not Entrez.email or Entrez.email == "your_email@example.com":
+        logging.warning("Entrez email not configured in config.py. PubMed queries may be slower or blocked.")
+
     main()

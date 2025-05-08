@@ -39,7 +39,7 @@ class LLMClient:
         self.model = model
         self.url = f"{API_HOST}/chat/completions"
 
-    def generate(self, prompt: str, max_tokens: int = 4096, temperature: float = 0.0, max_retries: int = 3, expect_json: bool = False) -> str: # Added expect_json flag
+    def generate(self, prompt: str, max_tokens: int = 8192, temperature: float = 0.0, max_retries: int = 3, expect_json: bool = False) -> str: # Increased default max_tokens for longer output
         # Throttle and check daily limits
         with _usage_lock:
             usage = _load_usage()
@@ -47,8 +47,8 @@ class LLMClient:
             # Reset count if new day
             if usage.get('date') != today:
                 usage = {'date': today, 'count': 0, 'last_call': 0}
-            if usage['count'] >= 50:
-                raise DailyRateLimitError("Daily free-tier usage limit reached (50 calls)")
+            if usage['count'] >= 200:
+                raise DailyRateLimitError("Daily free-tier usage limit reached (200 calls)")
             # Enforce 1 call per minute
             now_ts = time.time()
             elapsed = now_ts - usage.get('last_call', 0)
