@@ -1,0 +1,10 @@
+Measure,Result/Score,
+Clinical Benefit Score,(1 – 0.75) × 100 × 1 = 25 → 25,25
+Toxicity Score,[(30 ÷ 25) – 1] × 20 = (1.2 – 1) × 20 = 4; with the toxicity penalty applied → -4,-4
+Bonus Points,Tail of the Curve: 10,10
+,Palliation: 0,0
+,Treatment-Free Interval: 0,0
+,Health-related QoL: 0,0
+Total Bonus Points,10 + 0 + 0 + 0 = 10,10
+Net Health Benefit,25 + (–4) + 10 = 31,31
+Cost (Total Course),"$120,000 total course","$120,000"

@@ -1,0 +1,7 @@
+Measure,Result/Score,
+Clinical Benefit Score,(1 – HR) × 100 × 1 = (1 – 0.75) × 100 = 0.25 × 100 = 25,25
+Toxicity Score,((Experimental % / Control %) – 1) × 20 + Penalty = ((35/25 – 1) × 20) + (–5) = (0.4 × 20) – 5 = 8 – 5 = –13,13
+Bonus Points,Tail of the Curve: 10 ;  Palliation: 5 ;  Treatment-Free Interval: 0 ;  Health-related QoL: 5,5
+Total Bonus Points,10 + 5 + 0 + 5 = 20,20
+Net Health Benefit,Clinical Benefit Score + Toxicity Score + Total Bonus Points = 25 + (–13) + 20 = 32,32
+Cost,"$10,000 per month","$10,000"

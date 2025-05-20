@@ -2,6 +2,7 @@ import re
 from llm_client import LLMClient # Assuming llm_client.py provides LLMClient
 import os
 import datetime # Added datetime import
+import csv # Added csv import
 
 # Trial descriptions are now extremely high-level, prompting the LLM to hypothesize details.
 
@@ -78,29 +79,61 @@ def generate_asco_scorecard_single_llm(trial_name, scenario_hint, llm_client):
     Trial Name: {trial_name}
     Scenario Hint: {scenario_hint}
 
-    Based on the Trial Name and Scenario Hint, you must:
+    IMPORTANT GUIDELINES FOR HYPOTHESIZING:
+
+    1.  Clinical Benefit (Hazard Ratio - HR):
+        *   Hazard Ratios (HR) for Overall Survival (OS) or Progression-Free Survival (PFS) in oncology trials typically range.
+        *   For a new agent showing a clear benefit against an older standard or placebo, HRs might be in the 0.60-0.80 range.
+        *   Truly practice-changing drugs might achieve HRs below 0.60, but this is less common.
+        *   If the control arm is already effective, or the new agent offers a more incremental benefit, the HR might be more modest, e.g., 0.75-0.90.
+        *   Consider the trial phase and setting (e.g., adjuvant, metastatic, first-line, salvage). Earlier lines or adjuvant settings might seek larger relative benefits.
+        *   Justify your HR choice by briefly describing the perceived magnitude of benefit (e.g., modest, substantial, highly significant) based on the trial context and your hypothesized outcome.
+        *   The Clinical Benefit Calculation Factor is typically 1 for OS/DFS/PFS.
+
+    2.  Toxicity Score:
+        *   Toxicity penalties are applied if the experimental arm shows meaningfully higher rates of severe adverse events (e.g., Grade 3/4) than the control.
+        *   A small, expected increase in manageable side effects might result in a penalty of -1 to -5 points.
+        *   More significant, but still manageable, toxicity could lead to -6 to -10 points.
+        *   Penalties greater than -10 (e.g., -11 to -20) are typically reserved for substantial toxicity concerns that might limit the drug's broad use or require intensive management.
+        *   If toxicity is similar between arms, or even favorable for the experimental arm, the Toxicity Score should be 0.
+        *   When hypothesizing toxicity metrics (e.g., % Grade 3/4 AEs), ensure the difference between arms realistically reflects the type of agents (e.g., chemotherapy vs. targeted therapy vs. immunotherapy vs. hormone therapy) and the scenario hint. For example, some immunotherapies can have unique but serious toxicities, while some targeted therapies might be better tolerated than older chemotherapies. Combination therapies might have additive toxicities.
+        *   Justify your hypothesized toxicity metrics and the resulting score.
+
+    3.  Bonus Points:
+        *   Bonus points are awarded for specific, well-defined additional benefits. Do not award them speculatively.
+        *   'Tail of the Curve' (evidence of long-term survival or durable response for a subset of patients) is the most common, potentially up to 20 points if a significant plateau in survival is observed or reasonably hypothesized.
+        *   Palliation (improvement in disease-related symptoms), Treatment-Free Interval (significant period off treatment without progression), and Health-related Quality of Life (QoL) bonuses are typically smaller (0-10 points each) and require clear, plausible evidence of benefit in those specific domains.
+        *   Many trials will not qualify for all, or even any, of these additional bonus categories beyond a potential 'Tail of the Curve'.
+        *   Justify each bonus point category by linking it to a plausible outcome in your hypothesized scenario. If a bonus category is unlikely to apply given the trial type (e.g., adjuvant trial and palliation of symptoms from active cancer), assign 0 points.
+
+    4.  Cost:
+        *   You MUST hypothesize a specific cost in US dollars for the experimental therapy, formatted as a dollar amount (e.g., "$8,000 per month", "$50,000 total course").
+        *   Do NOT use any values from the gold standard or README. Instead, base your estimate on the type of therapy (e.g., novel oral targeted therapy, monoclonal antibody, immunotherapy, standard chemotherapy, etc.), the clinical context, and your own knowledge of plausible ranges for such drugs in the US healthcare system.
+        *   If the scenario suggests a high-cost novel agent, hypothesize a high monthly or total cost (e.g., $8,000–$20,000/month or $50,000–$200,000 total). For older or generic therapies, hypothesize a lower cost (e.g., $500–$5,000/month or $5,000–$20,000 total). For combination regimens, sum plausible costs. Always provide a specific number and indicate whether it is per month, per cycle, or total course.
+
+    Based on the Trial Name, Scenario Hint, and these GUIDELINES, you must:
     1.  Hypothesize a plausible efficacy outcome:
         *   What is a realistic Hazard Ratio (HR) for the primary endpoint (e.g., OS or DFS)? Justify your choice briefly.
         *   What is an appropriate Clinical Benefit Calculation Factor (typically 1 for OS/DFS/PFS, but consider context if implied by the hint)?
     2.  Hypothesize a plausible toxicity profile:
         *   What are realistic toxicity metrics (e.g., representative values for severe adverse event rates) for the experimental and control arms that fit the scenario? Justify briefly.
-        *   Should the toxicity score be subtracted (e.g., if toxicity is notably high for the experimental arm vs. control/placebo)?
+        *   Based on this, will the toxicity score be a penalty (negative), or zero?
     3.  Hypothesize applicable Bonus Points:
         *   Based on your hypothesized scenario, which bonus point categories (Tail of the Curve, Palliation, Treatment-Free Interval, Health-related QoL) would apply?
-        *   Assign plausible points for each applicable category (0-20 for tail, 0-10 for others). Justify your choices.
-    4.  Hypothesize a plausible Cost Context (e.g., "High monthly cost", "Very high total course cost").
+        *   Assign plausible points for each applicable category. Justify your choices.
+    4.  Hypothesize a plausible Cost Context (e.g., "$8,000 per month", "$120,000 total course"). You MUST provide a specific dollar value.
 
     Present your HYPOTHESIZED quantitative inputs and their justifications clearly:
     - Hypothesized Hazard Ratio (HR): [Your HR estimate] (Justification: ...)
-    - Assumed Clinical Benefit Calculation Factor: [Your factor estimate] (Justification: ...)
-    - Hypothesized Toxicity Metric (Experimental Arm): [Your metric estimate] (Justification: ...)
-    - Hypothesized Toxicity Metric (Control Arm): [Your metric estimate] (Justification: ...)
-    - Note on Toxicity Score Calculation: [e.g., "Subtract score due to hypothesized high relative toxicity" or "Standard calculation"]
+    - Assumed Clinical Benefit Calculation Factor: [Your factor estimate, usually 1] (Justification: ...)
+    - Hypothesized Toxicity Metric (Experimental Arm % Grade 3/4 AEs): [Your metric estimate] (Justification: ...)
+    - Hypothesized Toxicity Metric (Control Arm % Grade 3/4 AEs): [Your metric estimate] (Justification: ...)
+    - Note on Toxicity Score Calculation: [e.g., "Subtract score due to hypothesized higher relative toxicity" or "Score is 0 due to similar toxicity"]
     - Hypothesized Bonus Points - Tail of the Curve: [Points] (Justification: ...)
     - Hypothesized Bonus Points - Palliation: [Points] (Justification: ...)
     - Hypothesized Bonus Points - Treatment-Free Interval: [Points] (Justification: ...)
     - Hypothesized Bonus Points - Health-related QoL: [Points] (Justification: ...)
-    - Hypothesized Cost Context: [Your summary]
+    - Hypothesized Cost Context: [Your summary and SPECIFIC DOLLAR VALUE, e.g., "$8,000 per month"]
     """
     hypothesized_inputs_response = llm_client.generate(hypothesize_prompt)
     
@@ -157,7 +190,8 @@ def generate_asco_scorecard_single_llm(trial_name, scenario_hint, llm_client):
     For \'Bonus Points\', list each category and YOUR HYPOTHESIZED points.
     For \'Total Bonus Points\', show the sum of YOUR HYPOTHESIZED bonus points.
     For \'Net Health Benefit\', show the sum of CBS, TS, and Total Bonus Points (all based on your hypothesized inputs), and the final score.
-    
+    For 'Cost', provide a specific cost in US dollars (e.g., $8,000 per month, $50,000 total course, etc.), without using any values from the gold standard or README. Hypothesize a plausible cost based on the type of therapy and context.
+
     Format as a clean markdown table:
     
     | Measure                  | Result/Score                                                                 |
@@ -203,24 +237,30 @@ def validate_scorecard(scorecard_response):
 
 # Define the path for the results file at the top level
 RESULTS_FILE_PATH = "single_llm_scorecard_results.md"
+CSV_OUTPUT_DIR = "single_llm_csv_results" # Define directory for CSV files
 
 def main():
     # Initialize your LLMClient.
     # This might require API keys or specific model configurations
     # depending on your llm_client.py setup.
     # For OpenRouter, you'd typically set OPENROUTER_API_KEY environment variable.
-    # And specify the model in LLMClient if it's not defaulted.
+    # And specify the model in LLMClient if it\'s not defaulted.
     try:
         # You might need to specify a model, e.g., model_name="openai/gpt-3.5-turbo"
         # or whatever model you intend to use via OpenRouter.
         llm_client = LLMClient() 
         print("LLM Client initialized successfully.")
         # A quick test to confirm the client is working with OpenRouter
-        # print(f"Test generation: {llm_client.generate('Say hello.')}")
+        # print(f"Test generation: {llm_client.generate(\'Say hello.\')}")
     except Exception as e:
         print(f"Failed to initialize LLMClient: {e}")
         print("Please ensure your llm_client.py is correctly set up, OPENROUTER_API_KEY environment variable is set, and any necessary model_name is specified if not defaulted in LLMClient.")
         return
+
+    # Create CSV output directory if it doesn\'t exist
+    if not os.path.exists(CSV_OUTPUT_DIR):
+        os.makedirs(CSV_OUTPUT_DIR)
+        print(f"Created directory for CSV results: {CSV_OUTPUT_DIR}")
 
     # Open the results file in write mode to clear it for the new run and write initial header
     with open(RESULTS_FILE_PATH, "w", encoding="utf-8") as results_file:
@@ -237,20 +277,74 @@ def main():
             generated_scorecard_markdown = generate_asco_scorecard_single_llm(trial["name"], trial["scenario_hint"], llm_client)
         except Exception as e:
             print(f"Error during LLM generation for {trial['name']}: {e}")
-            print("--------------------------------------------------\n")
+            print("--------------------------------------------------\\n")
             continue # Skip to the next trial
 
-        print("\n--- Generated Scorecard (Markdown) ---")
+        print("\\n--- Generated Scorecard (Markdown) ---")
         print(generated_scorecard_markdown)
         
         # Append the current scorecard to the results file
         with open(RESULTS_FILE_PATH, "a", encoding="utf-8") as results_file:
-            results_file.write(f"## Scorecard: {trial['name']}\n\n")
+            results_file.write(f"## Scorecard {TRIAL_DESCRIPTIONS.index(trial) + 1}: {trial['name']}\n\n") # Added scorecard number
             results_file.write(f"**Scenario Hint:** {trial['scenario_hint']}\n\n")
             results_file.write(generated_scorecard_markdown)
             results_file.write("\n\n---\n\n")
 
-        print("\n--- Validation Results ---")
+        # Save scorecard to CSV
+        try:
+            # Sanitize trial name for filename
+            safe_trial_name = re.sub(r'[\\/*?:"<>|]', "", trial['name']) # Remove invalid chars
+            safe_trial_name = safe_trial_name.replace(" ", "_")[:100] # Replace spaces, limit length
+            csv_filename = os.path.join(CSV_OUTPUT_DIR, f"single_llm_scorecard_{safe_trial_name}.csv")
+
+            # Robust markdown table parser with extraction of final value
+            lines = generated_scorecard_markdown.splitlines()
+            table_rows = []
+            for line in lines:
+                if line.strip().startswith('|') and line.strip().endswith('|'):
+                    # Ignore separator lines
+                    if set(line.replace('|','').replace('-','').strip()) == set():
+                        continue
+                    cols = [c.replace('<br>', '; ').replace('\n', ' ').strip() for c in line.strip().split('|')[1:-1]]
+                    # Remove markdown bold for parsing
+                    desc = cols[1].replace('**','').strip() if len(cols) > 1 else ''
+                    value = ''
+                    # For cost, look for $ and numbers
+                    if 'cost' in cols[0].lower():
+                        m = re.search(r'(\$[\d,]+(?:\.\d{1,2})?)', desc)
+                        if m:
+                            value = m.group(1)
+                        else:
+                            # fallback: last number
+                            m2 = re.findall(r'(\$?[\d,]+(?:\.\d{1,2})?)', desc)
+                            if m2:
+                                value = m2[-1]
+                    else:
+                        # For other measures, look for last bolded or standalone number (possibly negative)
+                        m = re.findall(r'(-?\d+\.?\d*)', desc)
+                        if m:
+                            value = m[-1]
+                    # Remove markdown bold from measure
+                    measure = cols[0].replace('**','').strip()
+                    # Compose row: Measure | Description/Formula | Final Value
+                    table_rows.append([measure, desc, value])
+            # Remove duplicate header if present
+            if table_rows and table_rows[0][0].lower() == 'measure' and len(table_rows) > 1 and table_rows[1][0].lower() == 'measure':
+                table_rows.pop(0)
+            elif table_rows and table_rows[0][0].lower() != 'measure':
+                table_rows.insert(0, ['Measure', 'Description/Formula', 'Final Value'])
+            if table_rows and len(table_rows) > 1:
+                with open(csv_filename, "w", newline='', encoding="utf-8") as csv_file:
+                    writer = csv.writer(csv_file)
+                    writer.writerows(table_rows)
+                print(f"Scorecard saved to CSV: {csv_filename}")
+            else:
+                print(f"Warning: Could not parse markdown table to save CSV for {trial['name']}")
+        except Exception as e:
+            print(f"Error saving scorecard to CSV for {trial['name']}: {e}")
+
+
+        print("\\n--- Validation Results ---")
         validation = validate_scorecard(generated_scorecard_markdown)
         print(f"Scorecard Structurally Complete (key elements found): {validation['complete']}")
         
@@ -277,7 +371,7 @@ def main():
         formulas_check = check_formulas_present(generated_scorecard_markdown)
         print(f"  Formula likely present for Clinical Benefit Score: {formulas_check['Clinical Benefit Score']}")
         print(f"  Formula likely present for Toxicity Score: {formulas_check['Toxicity Score']}")
-        print("--------------------------------------------------\n")
+        print("--------------------------------------------------\\n")
 
     print(f"All scorecards generated and saved to {RESULTS_FILE_PATH}")
 
