@@ -146,6 +146,62 @@ This project takes a phased approach to assess the feasibility of using LLMs to 
 
 See `scripts/`, `llm_client.py`, and specific workflow scripts (to be developed for each LLM approach) for implementation details.
 
+## LLM-Based Scorecard Generation Approaches
+
+This repository now supports **four distinct LLM-based methods** for oncology scorecard generation and replication:
+
+1. **Multi-Agentic Approach**  
+   Orchestrates multiple specialized LLM agents, each responsible for a component of the scorecard (e.g., clinical benefit, toxicity, cost). Agents collaborate and critique each other's outputs for improved accuracy. See `multi_agentic_scorecard.py` and results in `multi_agentic_csv_results/`.
+
+2. **Single LLM Approach**  
+   Uses a single, general-purpose LLM to generate the entire scorecard from a prompt. This method is simple and cost-effective, but may lack the nuanced reasoning of the multi-agentic approach. See `single_llm_scorecard.py` and results in `single_llm_csv_results/`.
+
+3. **LLM with RAG (Retrieval-Augmented Generation) Approach**  
+   Enhances LLM output by retrieving relevant context (e.g., trial data, literature) from a local knowledge base before prompting the LLM. This improves factuality and grounding. See `rag_llm_scorecard.py` and results in `rag_llm_csv_results/`.
+
+4. **MOA-DeepOutputs Multi-Agentic Framework (NEW)**  
+   Integrates the [MOA-DeepOutputs-main](MOA-DeepOutputs-main/) framework as a submodule/folder within this repository. This advanced multi-agentic pipeline leverages a mixture-of-agents (MOA) architecture, orchestrating several LLMs (via OpenRouter API) to generate, critique, and synthesize scorecard components. The workflow is highly modular, supporting deep agent tracing, prompt customization, and robust output parsing.
+
+   - **How it works:**
+     - Prompts for each clinical trial are written to `MOA-DeepOutputs-main/prompt.txt`.
+     - The MOA-DeepOutputs engine is invoked (see `deep_outputs_scorecard.py`), running multiple LLM agents in parallel and in sequence.
+     - Markdown reports are generated in `MOA-DeepOutputs-main/reports/`, containing detailed scorecard tables and agent reasoning.
+     - A post-processing step extracts the markdown tables and saves them as CSVs in `deep_outputs_csv_results/` for downstream analysis.
+   - **Integration:**
+     - The `MOA-DeepOutputs-main` folder is now a first-class part of this repository, not a standalone project. All scripts and outputs are managed from the root project structure, ensuring reproducibility and ease of use.
+     - The main entry point for this method is `deep_outputs_scorecard.py`, which automates prompt writing, engine invocation, and CSV extraction.
+   - **Best Practices:**
+     - All MOA-DeepOutputs dependencies are managed via its own `requirements.txt` in `MOA-DeepOutputs-main/`.
+     - Reports and outputs are kept in dedicated subfolders for clarity.
+     - The integration allows for easy extension, batch processing, and future automation of markdown-to-CSV extraction.
+   - **See also:**
+     - `MOA-DeepOutputs-main/README.md` for framework details
+     - `deep_outputs_scorecard.py` for usage and automation
+     - `deep_outputs_csv_results/` for results
+
+### Updated Repository Structure
+
+```text
+multi-agentic-scorecard-creation/
+├── config.py
+├── deep_outputs_scorecard.py           # Entry point for MOA-DeepOutputs method
+├── deep_outputs_csv_results/           # CSVs generated from MOA-DeepOutputs markdown reports
+├── MOA-DeepOutputs-main/               # Integrated multi-agentic LLM framework (subfolder)
+│   ├── requirements.txt
+│   ├── prompt.txt
+│   ├── reports/                         # Markdown reports for each trial
+│   └── ...
+├── multi_agentic_scorecard.py
+├── multi_agentic_csv_results/
+├── rag_llm_scorecard.py
+├── rag_llm_csv_results/
+├── single_llm_scorecard.py
+├── single_llm_csv_results/
+└── ...
+```
+
+This structure ensures that all four LLM-based methods are accessible, reproducible, and clearly separated for benchmarking and future development.
+
 ## Repository Structure
 
 ```text

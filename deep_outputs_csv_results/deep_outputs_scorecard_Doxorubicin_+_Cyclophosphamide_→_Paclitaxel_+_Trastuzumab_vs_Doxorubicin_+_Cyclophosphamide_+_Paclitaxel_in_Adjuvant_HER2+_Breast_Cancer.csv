@@ -1,0 +1,7 @@
+Measure,Description/Formula,Final Value
+Clinical Benefit Score,"(1 - HR) * 150% * 100",52.5
+Toxicity Score,"[(Control Group Cardiac Toxicity %) - (Experimental Group Cardiac Toxicity %)] * 20",-20
+Bonus Points,"Tail of Curve: 2 points; Long-term Disease Control: 3 points",5
+Total Bonus Points,"Sum of individual bonus points",5
+Net Health Benefit,"Clinical Benefit Score - Toxicity Score + Total Bonus Points",37.5
+Cost,"AC-T: $42,000; AC-TH: $68,000; Incremental Cost: $26,000",$68'000

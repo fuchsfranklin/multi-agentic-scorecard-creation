@@ -1,0 +1,7 @@
+Measure,Description/Formula,Final Value
+Clinical Benefit Score,"Based on Overall Survival HR from RESONATE-2 trial: (1 - 0.54) × 100",46
+Toxicity Score,"Base score of 80, penalty for unique toxicities: -15 points (atrial fibrillation, hypertension)",65
+Bonus Points,"Tail-of-the-curve survival benefit: +5; Oral administration convenience: +3; Quality of life improvement: +4",12
+Total Bonus Points,"Sum of individual bonus point categories",12
+Net Health Benefit,"CBS + Bonus Points - Toxicity Penalty",58
+Cost,"Annual treatment cost for ibrutinib (wholesale acquisition cost)",$178'000

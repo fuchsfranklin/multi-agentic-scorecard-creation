@@ -1,1 +1,4 @@
-What would be an easy way to calculate the tariffs that should be imposed on other countries so that the U.S. is on even-playing fields when it comes to trade deficit? Set minimum at 10%.
+Generate an ASCO Value Framework scorecard for the following trial. You must hypothesize plausible, domain-specific values for all scorecard components, including a specific cost in US dollars (no gold standard leakage). Output a markdown table with these rows: Clinical Benefit Score, Toxicity Score, Bonus Points (with sub-items), Total Bonus Points, Net Health Benefit, Cost. Each row must include a description/formula and a final value.
+
+Trial Name: Ibrutinib Versus Chlorambucil As Initial Therapy for Chronic Lymphocytic Leukemia
+Scenario Hint: First-line CLL: ibrutinib vs chlorambucil. Focus on OS, unique toxicity, and cost. Generate a full ASCO-style scorecard with plausible HR, toxicity, bonus points, and a specific cost in US dollars.

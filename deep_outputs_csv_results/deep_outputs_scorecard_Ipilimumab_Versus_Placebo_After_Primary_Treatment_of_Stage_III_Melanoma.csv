@@ -1,0 +1,7 @@
+Measure,Description/Formula,Final Value
+Clinical Benefit Score,"(1 - HR for DFS) × 100 × 0.85 (85% weight to account for DFS vs OS uncertainty)",42.5
+Toxicity Score,"−20 × (Grade 3-4 irAE Rate / Total Patients) (capped at −20)",-15
+Bonus Points,"Durability of Response: +5; Long-term Survival Signal: +3; Novel Adjuvant Approach: +2",10
+Total Bonus Points,"Sum of Bonus Point Categories",10
+Net Health Benefit,"Clinical Benefit + Toxicity Score + Bonus Points",37.5
+Cost,"Average wholesale price for full adjuvant course",$187'500

@@ -1,0 +1,7 @@
+Measure,Description/Formula,Final Value
+Clinical Benefit Score,"Based on OS Hazard Ratio (from AFFIRM trial), calculated as (1 - HR) × 25",9.25
+Toxicity Score,"Grade 3-4 AE differential between enzalutamide vs placebo, penalty points",-2.5
+Bonus Points,"Pain Palliation: +1.5; Quality of Life: +1.0; No Cross-Over Design: +0.5",3.0
+Total Bonus Points,"Sum of individual bonus point categories",3.0
+Net Health Benefit,"Clinical Benefit Score - Toxicity Score + Bonus Points",9.75
+Cost,"Average treatment duration 8.5 months, ASP $7,623/month",$64'795.50
