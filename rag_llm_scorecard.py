@@ -312,14 +312,13 @@ def generate_scorecard_table_with_rag(table_title, table_keywords_for_retrieval,
         context_str = "\n\n---\n\n".join(retrieved_context_chunks)
 
     # 2. Construct Prompt for LLM
-    # This prompt is inspired by single_llm_scorecard.py but adapted for RAG and ASCO structure
     prompt = f"""
 You are an expert oncologist tasked with creating an ASCO Value Framework style scorecard.
 Your task is to generate a scorecard for the trial: '{table_title}'.
 You will use the general scenario hint provided and the retrieved contextual information (if any) to inform your response.
 Do NOT use any specific quantitative data (like HR values, toxicity percentages, or scores) from the retrieved context if it seems to be from the exact trial results we are trying to score.
 Instead, use the retrieved context for general understanding of the drugs, disease, and typical outcomes/toxicities for similar situations.
-Then, HYPOTHESIZE plausible quantitative inputs (HR, toxicity metrics, bonus points) based on this general understanding and the scenario hint.
+Then, HYPOTHESIZE plausible quantitative inputs (HR, toxicity metrics, bonus points, cost) based on this general understanding and the scenario hint.
 
 **Trial Name:** {table_title}
 **Scenario Hint:** {scenario_hint}
@@ -331,10 +330,10 @@ Then, HYPOTHESIZE plausible quantitative inputs (HR, toxicity metrics, bonus poi
 
 **Instructions:**
 1.  **Hypothesize Key Inputs:** Based on the scenario hint and your general understanding from the retrieved context, hypothesize:
-    *   A plausible Hazard Ratio (HR) for the primary endpoint.
-    *   Plausible toxicity metrics for experimental and control arms (or a qualitative comparison).
-    *   Applicable Bonus Points (Tail of the Curve, Palliation, Treatment-Free Interval, Health-related QoL) and their scores.
-    *   A general Cost Context.
+    *   A plausible Hazard Ratio (HR) for the primary endpoint. For a new agent vs. placebo or older standard, HRs might be 0.60-0.80; truly practice-changing drugs may be <0.60; incremental benefit may be 0.75-0.90. Justify your choice.
+    *   Plausible toxicity metrics for experimental and control arms (or a qualitative comparison). Toxicity penalties: -1 to -5 for small increases, -6 to -10 for moderate, -11 to -20 for substantial toxicity. If similar or favorable, score is 0. Justify your choice.
+    *   Applicable Bonus Points (Tail of the Curve, Palliation, Treatment-Free Interval, Health-related QoL) and their scores. Only award bonus points if clearly justified by scenario/context. Tail of the Curve up to 20, others 0-10 each. Justify each.
+    *   You MUST hypothesize a specific cost in US dollars for the experimental therapy, formatted as a dollar amount (e.g., "$8,000 per month", "$120,000 total course"). Do NOT use any values from the gold standard or README. Base your estimate on the type of therapy and plausible US pricing. For high-cost novel agents, hypothesize $8,000–$20,000/month or $50,000–$200,000 total; for older/generic, $500–$5,000/month or $5,000–$20,000 total. Always provide a specific number and indicate per month, per cycle, or total course.
 2.  **Calculate Scorecard Components:** Based *only* on YOUR HYPOTHESIZED inputs:
     *   Clinical Benefit Score: (1 - Hypothesized HR) * 100 * Factor (assume Factor=1 unless hint implies otherwise).
     *   Toxicity Score: If applicable, based on hypothesized difference in toxicity. This might be a qualitative adjustment or a simple calculation if you hypothesize specific rates. If toxicity is significantly higher in the experimental arm, this score should be negative.
@@ -346,7 +345,7 @@ Then, HYPOTHESIZE plausible quantitative inputs (HR, toxicity metrics, bonus poi
     *   Bonus Points (listing each category and YOUR HYPOTHESIZED points).
     *   Total Bonus Points (sum of YOUR HYPOTHESIZED points).
     *   Net Health Benefit (sum based on YOUR HYPOTHESIZED values).
-    *   Cost (reflecting YOUR HYPOTHESIZED cost context).
+    *   Cost (reflecting YOUR HYPOTHESIZED cost context as a specific dollar value).
 
 **Example Markdown Table Structure (fill with your hypothesized values and calculations):**
 | Measure                  | Result/Score                                                                 |
@@ -359,7 +358,7 @@ Then, HYPOTHESIZE plausible quantitative inputs (HR, toxicity metrics, bonus poi
 |                          | Health-related QoL: [Your Hyp. Points]                                       |
 | **Total Bonus Points**    | [Sum of Your Hyp. Bonus Points = **Score**]                                  |
 | **Net Health Benefit**    | [Your CBS + Your TS + Your Total Bonus = **Score**]                          |
-| **Cost (...)**            | [Your Hypothesized Cost Context]                                             |
+| **Cost (...)**            | [Your Hypothesized Cost Context as a specific dollar value]                  |
 
 Generate the scorecard now for '{table_title}':
 """
@@ -495,12 +494,13 @@ def main():
 
     # --- Step 2: Generate Scorecards using RAG ---
     generated_scorecards_markdown = "# RAG-Based ASCO-Style Scorecards (PubMed Context Only, LanceDB)\n\n" # MODIFIED
+    rag_csv_dir = "rag_llm_csv_results"
+    if not os.path.exists(rag_csv_dir):
+        os.makedirs(rag_csv_dir)
     for table_def in scorecard_tables_definitions:
         table_title = table_def["title"]
         rag_keywords = table_def["rag_query_keywords"]
         scenario_hint = table_def["scenario_hint_for_llm"]
-        
-        # Pass the initialized sentence_model to generate_scorecard_table_with_rag
         markdown_table = generate_scorecard_table_with_rag(
             table_title=table_title,
             table_keywords_for_retrieval=rag_keywords,
@@ -513,6 +513,47 @@ def main():
         generated_scorecards_markdown += f"**Scenario Hint Provided to LLM:** {scenario_hint}\n\n"
         generated_scorecards_markdown += markdown_table
         generated_scorecards_markdown += "\n\n---\n\n"
+
+        # CSV export: parse markdown table and save as CSV
+        safe_title = re.sub(r'[\\/*?:"<>|]', '', table_title).replace(' ', '_')[:100]
+        csv_filename = os.path.join(rag_csv_dir, f"rag_llm_scorecard_{safe_title}.csv")
+        lines = markdown_table.splitlines()
+        table_rows = []
+        for line in lines:
+            if line.strip().startswith('|') and line.strip().endswith('|'):
+                # Ignore separator lines
+                if set(line.replace('|','').replace('-','').strip()) == set():
+                    continue
+                cols = [c.replace('<br>', '; ').replace('\n', ' ').strip() for c in line.strip().split('|')[1:-1]]
+                desc = cols[1].replace('**','').strip() if len(cols) > 1 else ''
+                value = ''
+                # For cost, look for $ and numbers
+                if 'cost' in cols[0].lower():
+                    m = re.search(r'(\$[\d,]+(?:\.\d{1,2})?)', desc)
+                    if m:
+                        value = m.group(1)
+                    else:
+                        m2 = re.findall(r'(\$?[\d,]+(?:\.\d{1,2})?)', desc)
+                        if m2:
+                            value = m2[-1]
+                else:
+                    m = re.findall(r'(-?\d+\.?\d*)', desc)
+                    if m:
+                        value = m[-1]
+                measure = cols[0].replace('**','').strip()
+                table_rows.append([measure, desc, value])
+        if table_rows and table_rows[0][0].lower() == 'measure' and len(table_rows) > 1 and table_rows[1][0].lower() == 'measure':
+            table_rows.pop(0)
+        elif table_rows and table_rows[0][0].lower() != 'measure':
+            table_rows.insert(0, ['Measure', 'Description/Formula', 'Final Value'])
+        if table_rows and len(table_rows) > 1:
+            with open(csv_filename, "w", newline='', encoding="utf-8") as csv_file:
+                import csv
+                writer = csv.writer(csv_file)
+                writer.writerows(table_rows)
+            logging.info(f"Scorecard saved to CSV: {csv_filename}")
+        else:
+            logging.warning(f"Could not parse markdown table to save CSV for {table_title}")
 
     output_filename = "rag_llm_asco_scorecard_results_pubmed_lancedb.md" # MODIFIED filename
     try:

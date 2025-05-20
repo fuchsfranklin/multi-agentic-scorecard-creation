@@ -1,0 +1,10 @@
+Measure,Result/Score,
+Clinical Benefit Score,(1 – 0.70) * 100 * 1 = 30,30
+Toxicity Score,Significant immune-related toxicities vs placebo → –10,10
+Bonus Points,Tail of the Curve: 10,10
+,Palliation: 0,0
+,Treatment-Free Interval: 4,4
+,Health-related QoL: 0,0
+Total Bonus Points,10 + 0 + 4 + 0 = 14,14
+Net Health Benefit,30 (Clinical Benefit) + (–10) (Toxicity) + 14 (Bonus) = 34,34
+Cost,"$150,000 total course","$150,000"

@@ -1,0 +1,10 @@
+Measure,Result/Score,
+Clinical Benefit Score,(1 – 0.55) * 100 * 1 = 45,45
+Toxicity Score,"Increased cardiovascular toxicity (e.g., AF, HTN) relative to chlorambucil: –8",8
+Bonus Points,Tail of the Curve: 10,10
+,Palliation: 5,5
+,Treatment-Free Interval: 5,5
+,Health-related QoL: 5,5
+Total Bonus Points,10 + 5 + 5 + 5 = 25,25
+Net Health Benefit,45 + (–8) + 25 = 62,62
+Cost,"$15,000 per month","$15,000"

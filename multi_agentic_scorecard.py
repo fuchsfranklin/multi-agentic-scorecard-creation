@@ -219,8 +219,13 @@ class ExtractionAgent:
         prompt = (
             "Extract the following metrics in JSON format from the abstract/text:"
             " hazard_ratio, toxicity_experimental, toxicity_control, bonus_tail, bonus_palliation,"
-            " bonus_tfi, bonus_qol, cost_estimate. Return a single JSON object."
-            f"\n\nText:\n{text[:2000]}"
+            " bonus_tfi, bonus_qol, cost_estimate. Return a single JSON object.\n"
+            "Guidelines for extraction:\n"
+            "- hazard_ratio: Hypothesize a plausible HR for the primary endpoint. For a new agent vs. placebo or older standard, HRs might be 0.60-0.80; truly practice-changing drugs may be <0.60; incremental benefit may be 0.75-0.90. Justify your choice.\n"
+            "- toxicity_experimental, toxicity_control: Hypothesize plausible toxicity metrics (e.g., % grade 3/4 AEs) for experimental and control arms. Toxicity penalties: -1 to -5 for small increases, -6 to -10 for moderate, -11 to -20 for substantial toxicity. If similar or favorable, score is 0. Justify your choice.\n"
+            "- bonus_tail, bonus_palliation, bonus_tfi, bonus_qol: Only award bonus points if clearly justified by scenario/context. Tail of the Curve up to 20, others 0-10 each. Justify each.\n"
+            "- cost_estimate: You MUST hypothesize a specific cost in US dollars for the experimental therapy, formatted as a dollar amount (e.g., '$8,000 per month', '$120,000 total course'). Do NOT use any values from the gold standard or README. Base your estimate on the type of therapy and plausible US pricing. For high-cost novel agents, hypothesize $8,000–$20,000/month or $50,000–$200,000 total; for older/generic, $500–$5,000/month or $5,000–$20,000 total. Always provide a specific number and indicate per month, per cycle, or total course.\n"
+            f"\nText:\n{text[:2000]}"
         )
         # Request JSON-formatted response from LLM
         try:
@@ -389,8 +394,52 @@ class MultiAgentScorecardGenerator:
 
     def generate_all(self, titles: List[str]) -> str:
         report = "# Multi-Agentic ASCO-Style Scorecards\n\n"
+        csv_dir = "multi_agentic_csv_results"
+        if not os.path.exists(csv_dir):
+            os.makedirs(csv_dir)
         for t in titles:
-            report += self.process_trial(t) + "\n---\n"
+            md_table = self.process_trial(t)
+            report += md_table + "\n---\n"
+            # CSV export: parse markdown table and save as CSV
+            safe_title = re.sub(r'[\\/*?:"<>|]', '', t).replace(' ', '_')[:100]
+            csv_filename = os.path.join(csv_dir, f"multi_agentic_scorecard_{safe_title}.csv")
+            lines = md_table.splitlines()
+            table_rows = []
+            for line in lines:
+                if line.strip().startswith('|') and line.strip().endswith('|'):
+                    # Ignore separator lines
+                    if set(line.replace('|','').replace('-','').strip()) == set():
+                        continue
+                    cols = [c.replace('<br>', '; ').replace('\n', ' ').strip() for c in line.strip().split('|')[1:-1]]
+                    desc = cols[1].replace('**','').strip() if len(cols) > 1 else ''
+                    value = ''
+                    # For cost, look for $ and numbers
+                    if 'cost' in cols[0].lower():
+                        m = re.search(r'(\$[\d,]+(?:\.\d{1,2})?)', desc)
+                        if m:
+                            value = m.group(1)
+                        else:
+                            m2 = re.findall(r'(\$?[\d,]+(?:\.\d{1,2})?)', desc)
+                            if m2:
+                                value = m2[-1]
+                    else:
+                        m = re.findall(r'(-?\d+\.?\d*)', desc)
+                        if m:
+                            value = m[-1]
+                    measure = cols[0].replace('**','').strip()
+                    table_rows.append([measure, desc, value])
+            if table_rows and table_rows[0][0].lower() == 'measure' and len(table_rows) > 1 and table_rows[1][0].lower() == 'measure':
+                table_rows.pop(0)
+            elif table_rows and table_rows[0][0].lower() != 'measure':
+                table_rows.insert(0, ['Measure', 'Description/Formula', 'Final Value'])
+            if table_rows and len(table_rows) > 1:
+                with open(csv_filename, "w", newline='', encoding="utf-8") as csv_file:
+                    import csv
+                    writer = csv.writer(csv_file)
+                    writer.writerows(table_rows)
+                logger.info(f"Scorecard saved to CSV: {csv_filename}")
+            else:
+                logger.warning(f"Could not parse markdown table to save CSV for {t}")
         return report
 
 # --- Main Execution ---

@@ -1,0 +1,10 @@
+Measure,Result/Score,
+Clinical Benefit Score,(1 – 0.75) * 100 * 1 = 25,25
+Toxicity Score,Modest increase in grade ≥3 events vs placebo → –5,5
+Bonus Points,Tail of the Curve: 10,10
+,Palliation: 5,5
+,Treatment-Free Interval: 3,3
+,Health-related QoL: 5,5
+Total Bonus Points,10 + 5 + 3 + 5 = 23,23
+Net Health Benefit,25 + (–5) + 23 = 43,43
+Cost,"$12,000 per month","$12,000"

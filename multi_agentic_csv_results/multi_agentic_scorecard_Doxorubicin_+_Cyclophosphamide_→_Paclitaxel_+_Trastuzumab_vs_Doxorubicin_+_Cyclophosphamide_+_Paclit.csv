@@ -1,0 +1,10 @@
+Measure,Result/Score,
+Clinical Benefit Score,"HR = {'value': 0.8, 'justification': 'An HR of 0.80 is chosen to reflect a meaningful reduction in the risk of events in the experimental (short‐duration) arm relative to the standard 1‐year arm. This is within the range expected for an incremental survival benefit in an adjuvant setting.'} → (1 - {'value': 0.8, 'justification': 'An HR of 0.80 is chosen to reflect a meaningful reduction in the risk of events in the experimental (short‐duration) arm relative to the standard 1‐year arm. This is within the range expected for an incremental survival benefit in an adjuvant setting.'}) × 100 = 0.0",0.0
+Toxicity Score,0.0 / 0.0 − 1 = 0.00 → 0.00 × -20 = -0.0,-0.0
+Bonus Points,"Tail of the Curve: {'value': 0, 'justification': 'There is no clear evidence from the abstract of a durable tail-of-the-curve survival benefit that would warrant bonus points.'}",0
+,"Palliation: {'value': 0, 'justification': 'Palliation is not a primary consideration in this curative adjuvant setting.'}",0
+,"Treatment-Free Interval: {'value': 0, 'justification': 'There is no demonstrated benefit in extending the treatment-free interval in this adjuvant study.'}",0
+,"Health-related QoL: {'value': 0, 'justification': 'Although a shorter course may improve cardiac safety, explicit quality-of-life improvements are not clearly detailed.'}",0
+Total Bonus Points,0.0,0.0
+Net Health Benefit,0.0,0.0
+Cost,"{'value': '$50,000 total course', 'justification': 'Trastuzumab is a high-cost biologic therapy; for a 9-week (experimental) course in the US, a total estimated cost of around $50,000 is plausible.'}","$50,000"
