@@ -1,8 +1,8 @@
-# LLM-Powered Oncology Scorecard Replication & Generation Pilot
+# LLM-Powered Oncology Scorecard Replication & Generation Project
 
-This project aims to replicate established oncology value frameworks, such as the ISPOR Scorecard and ASCO Value Framework, using Large Language Models (LLMs). The initial goal is to validate LLM capabilities in reproducing human-derived scorecards. Success here will inform a scaled approach to generate a novel scorecard (e.g., GH&V Scorecard) and compare LLM-driven methods against a human gold standard.
+This project aims to replicate established oncology value frameworks, such as the ISPOR Scorecard and ASCO Value Framework, using Large Language Models (LLMs). The initial goal is to validate LLM capabilities in reproducing human-derived scorecards.
 
-We are initially focusing on replicating a scorecard similar to the American Society of Clinical Oncology (ASCO) Value Framework (e.g., as described in [Langdon et al., 2016](https://ascopubs.org/doi/full/10.1200/JCO.2016.68.2518) or later versions). This framework assesses cancer treatments based on clinical benefit, toxicity, and symptom palliation to derive a "net health benefit" (NHB). This replication will serve as a proving ground for three primary LLM approaches:
+We are focusing on replicating a scorecard similar to the American Society of Clinical Oncology (ASCO) Value Framework (e.g., as described in [Langdon et al., 2016](https://ascopubs.org/doi/full/10.1200/JCO.2016.68.2518) or later versions). This framework assesses cancer treatments based on clinical benefit, toxicity, and symptom palliation to derive a "net health benefit" (NHB). This replication will serve as a proving ground for three primary LLM approaches:
 - Multi-Agentic Approach
 - Single LLM Approach
 - LLM with RAG (Retrieval-Augmented Generation) Approach
@@ -35,7 +35,7 @@ Therefore, while the importance of cost is acknowledged, this project will prima
 
 This project will proceed in key phases, focusing on leveraging Large Language Models (LLMs) to first replicate existing oncology value frameworks and then to generate novel ones. The methodology emphasizes a comparative analysis of different LLM approaches.
 
-1.  **Phase 1: Foundational Replication and Validation (ASCO-like Scorecard & ISPOR Standard)**
+1.  **Foundational Replication and Validation (ASCO-like Scorecard & ISPOR Standard)**
     *   **Objective**: To accurately replicate a well-established oncology value framework (e.g., similar to the ASCO Value Framework) using three distinct LLM strategies: Multi-Agent, Single LLM, and LLM with RAG.
     *   **Key Activities**:
         *   Define the specific attributes and calculation logic of the target ASCO-like framework based on published literature (e.g., Langdon et al., 2016).
@@ -97,19 +97,12 @@ This project will proceed in key phases, focusing on leveraging Large Language M
         | **Net Health Benefit**    | 84 − 6.8 = **77.2**                                                           |
         | **Cost (Per 4 Months)**   | **$35,770**                                                                  |
 
-2.  **Phase 2: Scaled Generation and Comparative Analysis (GH&V Scorecard)**
-    *   **Objective**: To apply the most effective LLM approach(es) identified in Phase 1 to generate a more comprehensive or novel scorecard (e.g., the GH&V Scorecard).
-    *   **Key Activities**:
-        *   Adapt and scale the chosen LLM methodology to meet the requirements of the GH&V Scorecard.
-        *   Concurrently develop a human gold standard for the GH&V Scorecard to serve as a benchmark for the LLM's performance.
-        *   Conduct a detailed comparison of the LLM-generated GH&V Scorecard against the human gold standard, focusing on metrics such as accuracy, completeness, efficiency of generation, and potential cost-effectiveness of the LLM approach.
-
-3.  **Ongoing Activities & Technical Infrastructure**:
-    *   **Data Preparation**: Initial data processing and exploration will involve baseline Natural Language Processing (NLP) techniques and structured data analysis to prepare inputs for the LLM pipelines.
-    *   **LLM Interaction**: Management of LLM API interactions (e.g., via OpenRouter or other platforms), including handling of API limits and optimizing prompts for cost and performance.
+2.  **Ongoing Activities & Technical Infrastructure**:
+    *   **Data Preparation**: Initial data processing and exploration will involve baseline structured data extraction, manipulation, and analysis to prepare inputs for the LLM pipelines.
+    *   **LLM Interaction**: Management of LLM API interactions (via OpenRouter here), including handling of API limits and optimizing prompts for cost and performance.
     *   **Iterative Refinement**: Continuous evaluation of LLM outputs, prompt engineering, and data processing workflows to improve the accuracy and reliability of the generated scorecards.
 
-## Approach & Novelty
+## Approach & Novelty Thoughts and Discussion
 
 This project takes a phased approach to assess the feasibility of using LLMs to replicate and eventually generate complex oncology scorecards.
 
@@ -118,7 +111,7 @@ This project takes a phased approach to assess the feasibility of using LLMs to 
 -   **Single LLM Approach:** Employing a powerful, general-purpose LLM with sophisticated prompting to perform all necessary extraction and calculation tasks.
 -   **LLM with RAG:** Enhancing LLM performance by providing relevant context retrieved from a knowledge base of clinical trial data or oncology guidelines.
 
-**Phase 1: Replication & Validation (ASCO-like & ISPOR)**
+**Replication & Validation (ASCO-like & ISPOR)**
 -   **Goal:** Accurately replicate a known oncology scorecard (e.g., similar to ASCO's Net Health Benefit framework) using the three LLM strategies.
 -   **Novelty:**
     *   Systematic comparison of different LLM architectures for a complex, multi-faceted extraction and scoring task in oncology.
@@ -129,12 +122,6 @@ This project takes a phased approach to assess the feasibility of using LLMs to 
     *   Identifying and grading toxicities.
     *   Assessing symptom palliation.
     *   Calculating a composite Net Health Benefit (NHB) or similar score.
-
-**Phase 2: Scaling & Generation (GH&V Scorecard)**
--   **Goal:** Apply the most successful LLM approach(es) from Phase 1 to generate the more comprehensive GH&V Scorecard.
--   **Novelty:**
-    *   Comparing LLM-generated scorecards against a concurrently developed human gold standard for the GH&V Scorecard.
-    *   Evaluating the potential for LLMs to automate or semi-automate the creation of novel, complex value frameworks in healthcare.
 
 **Underlying Technologies & Constraints:**
 -   LLM interactions managed via OpenRouter, respecting free-tier limits (1 request/minute, 50 requests/day) during development.
@@ -150,7 +137,7 @@ See `scripts/`, `llm_client.py`, and specific workflow scripts (to be developed 
 
 This repository now supports **four distinct LLM-based methods** for oncology scorecard generation and replication:
 
-1. **Multi-Agentic Approach**  
+1. **Simple Multi-Agentic Approach**  
    Orchestrates multiple specialized LLM agents, each responsible for a component of the scorecard (e.g., clinical benefit, toxicity, cost). Agents collaborate and critique each other's outputs for improved accuracy. See `multi_agentic_scorecard.py` and results in `multi_agentic_csv_results/`.
 
 2. **Single LLM Approach**  
@@ -179,75 +166,100 @@ This repository now supports **four distinct LLM-based methods** for oncology sc
      - `deep_outputs_scorecard.py` for usage and automation
      - `deep_outputs_csv_results/` for results
 
-### Updated Repository Structure
-
-```text
-multi-agentic-scorecard-creation/
-├── config.py
-├── deep_outputs_scorecard.py           # Entry point for MOA-DeepOutputs method
-├── deep_outputs_csv_results/           # CSVs generated from MOA-DeepOutputs markdown reports
-├── MOA-DeepOutputs-main/               # Integrated multi-agentic LLM framework (subfolder)
-│   ├── requirements.txt
-│   ├── prompt.txt
-│   ├── reports/                         # Markdown reports for each trial
-│   └── ...
-├── multi_agentic_scorecard.py
-├── multi_agentic_csv_results/
-├── rag_llm_scorecard.py
-├── rag_llm_csv_results/
-├── single_llm_scorecard.py
-├── single_llm_csv_results/
-└── ...
-```
-
-This structure ensures that all four LLM-based methods are accessible, reproducible, and clearly separated for benchmarking and future development.
 
 ## Repository Structure
 
-```text
-config.py
-llm_client.py
-requirements.txt
-README.md
-langdon-et-al-2016-updating-the-american-society-of-clinical-oncology-value-framework-revisions-and-reflections-in.pdf # Reference paper
-
-scripts/
-  extract_clinical_trials.py
-  categorical_analysis.py # Baseline analysis
-  nlp_analysis.py         # Baseline analysis
-  # (LLM-specific approach scripts will be added here)
-
-data/
-  raw/          # Raw API JSON from ClinicalTrials.gov
-  nlp/          # Outputs from baseline NLP analysis
-  categorical/  # Outputs from baseline categorical analysis
-  # (Folders for LLM-generated scorecards and intermediate data will be added)
-
-docs/
-  MODEL_COMPARISON.md    # Initial thoughts, to be updated
-  NLP_ANALYSIS_REPORT.md # Report from baseline NLP
-  images/                # Figures for documentation
+```
+project-root/
+├── src/
+│   ├── multi_agentic_scorecard.py
+│   ├── single_llm_scorecard.py
+│   ├── rag_llm_scorecard.py
+│   ├── deep_outputs_scorecard.py
+│   ├── llm_client.py
+│   ├── MOA-DeepOutputs-main/
+│   │   ├── requirements.txt
+│   │   ├── prompt.txt
+│   │   ├── reports/
+│   │   └── ...
+│   ├── scripts/
+│   └── utils/
+├── results/
+│   ├── multi_agentic/
+│   ├── single_llm/
+│   ├── rag_llm/
+│   └── deep_outputs/
+├── docs/
+│   ├── EVALUATION_METRICS.md
+│   ├── ISPOR_PAPER_MARKDOWN_FORMAT.md
+│   ├── langdon-et-al-2016-updating-the-american-society-of-clinical-oncology-value-framework-revisions-and-reflections-in.pdf
+│   ├── LICENSE
+│   └── README.md
+├── requirements.txt
+├── README.md
+├── MOVE_COMMANDS.ps1
+├── MOVE_PLAN.txt
+├── NEW_PROJECT_STRUCTURE.md
+└── ... (other config, data, and test folders)
 ```
 
-### Data & Results Folders
-- **data/raw/**: Raw JSON from API (no processing).
-- **data/nlp/**: Outputs from baseline NLP/text analysis (extracted text, attributes, plots, summaries).
-- **data/categorical/**: Outputs from baseline categorical/structured analysis (plots, tables, etc.).
-- *(New folders will be added for LLM-specific outputs, e.g., `data/llm_scorecards/`)*
+All main code is in `src/`, results in `results/`, and documentation in `docs/`. See `NEW_PROJECT_STRUCTURE.md` for more details.
 
-### Scripts
-- **scripts/extract_clinical_trials.py**: Fetches and saves raw trial data.
-- **scripts/nlp_analysis.py**: Runs baseline NLP attribute extraction and topic modeling.
-- **scripts/categorical_analysis.py**: Runs baseline structured/categorical analysis.
-- **(New scripts will be added for each LLM approach and scorecard generation logic)**
+## Results Summary
 
-### How to Run
-- To fetch and save new data: `python scripts/extract_clinical_trials.py ...`
-- To run baseline NLP analysis: `python scripts/nlp_analysis.py`
-- To run baseline categorical analysis: `python scripts/categorical_analysis.py`
-- *(Commands for running LLM-based scorecard generation will be added as scripts are developed)*
+This section summarizes the outputs of all four LLM-based oncology scorecard generation approaches implemented in this repository. Each approach was applied to four benchmark clinical trial scenarios, and results are available as both markdown and CSV files in the respective results folders.
 
-All results are saved in their respective folders for easy navigation and reproducibility.
+### Trials Evaluated
+- Enzalutamide Versus Placebo After Chemotherapy in Metastatic Adenocarcinoma of Prostate
+- Doxorubicin + Cyclophosphamide → Paclitaxel + Trastuzumab vs Doxorubicin + Cyclophosphamide + Paclitaxel in Adjuvant HER2+ Breast Cancer
+- Ipilimumab Versus Placebo After Primary Treatment of Stage III Melanoma
+- Ibrutinib Versus Chlorambucil As Initial Therapy for Chronic Lymphocytic Leukemia
+
+### 1. MOA-DeepOutputs Multi-Agentic Framework
+Results generated by the advanced MOA-DeepOutputs pipeline. See detailed markdown reports in `MOA-DeepOutputs-main/reports/` and CSVs in `deep_outputs_csv_results/`.
+
+| Trial | Clinical Benefit | Toxicity | Bonus Points | Net Health Benefit | Cost |
+|-------|-----------------|----------|--------------|--------------------|------|
+| Enzalutamide vs Placebo | 9.25 | -2.5 | 3.0 | 9.75 | $64,795.50 |
+| Doxorubicin+Cyclophosphamide | 52.5 | -20 | 5 | 37.5 | $68,000 |
+| Ipilimumab vs Placebo | 42.5 | -15 | 10 | 37.5 | $187,500 |
+| Ibrutinib vs Chlorambucil | 46 | 65 | 12 | 58 | $178,000 |
+
+### 2. Multi-Agentic LLM Approach
+See `multi_agentic_scorecard_results.md` and CSVs in `multi_agentic_csv_results/`.
+
+| Trial | Clinical Benefit | Toxicity | Bonus Points | Net Health Benefit | Cost |
+|-------|-----------------|----------|--------------|--------------------|------|
+| Enzalutamide vs Placebo | 0.0 | -0.0 | 0.0 | 0.0 | $12,000/mo |
+| Doxorubicin+Cyclophosphamide | 0.0 | -0.0 | 0.0 | 0.0 | $50,000 |
+| Ipilimumab vs Placebo | 30.0 | 120.0 | 15.0 | 165.0 | $15,000/mo |
+| Ibrutinib vs Chlorambucil | 0.0 | -0.0 | 0.0 | 0.0 | $12,000/mo |
+
+### 3. Single LLM Approach
+See `single_llm_scorecard_results.md` and CSVs in `single_llm_csv_results/`.
+
+| Trial | Clinical Benefit | Toxicity | Bonus Points | Net Health Benefit | Cost |
+|-------|-----------------|----------|--------------|--------------------|------|
+| Enzalutamide vs Placebo | 25 | -10 | 28 | 43 | $10,000/mo |
+| Doxorubicin+Cyclophosphamide | 25 | -4 | 10 | 31 | $120,000 |
+| Ipilimumab vs Placebo | 25 | -60 | 15 | -20 | $150,000 |
+| Ibrutinib vs Chlorambucil | 25 | -13 | 20 | 32 | $10,000/mo |
+
+### 4. RAG-LLM Approach
+See CSVs in `rag_llm_csv_results/`.
+
+| Trial | Clinical Benefit | Toxicity | Bonus Points | Net Health Benefit | Cost |
+|-------|-----------------|----------|--------------|--------------------|------|
+| Enzalutamide vs Placebo | 25 | -5 | 23 | 43 | $12,000/mo |
+| Doxorubicin+Cyclophosphamide | 30 | -3 | 18 | 45 | $120,000 |
+| Ipilimumab vs Placebo | 30 | -10 | 14 | 34 | $150,000 |
+| Ibrutinib vs Chlorambucil | 45 | -8 | 25 | 62 | $15,000/mo |
+
+---
+
+**Full results, including detailed markdown and CSVs, are available in the respective results folders.**
+
+This summary demonstrates the diversity of outputs and scoring logic across LLM-based approaches, providing a robust foundation for benchmarking and future research. A next step for this project is to calculate accuracy, correlation, and more comprehensive evaluation metric sets such as [deepeval](https://github.com/confident-ai/deepeval).
 
 ## References
 - ClinicalTrials.gov API documentation: [https://clinicaltrials.gov/api/gui](https://clinicaltrials.gov/api/gui)
