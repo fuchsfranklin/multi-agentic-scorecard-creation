@@ -1,6 +1,6 @@
 # LLM-Powered Oncology Scorecard Replication & Generation Project
 
-This project aims to replicate established oncology value frameworks, such as the ISPOR Scorecard and ASCO Value Framework, using Large Language Models (LLMs). The initial goal is to validate LLM capabilities in reproducing human-derived scorecards.
+Based on some great discussions with my previous Pfizer colleagues [Brett South](https://www.linkedin.com/in/brett-south-phd-famia-50242349), [Jay Ronquillo](https://www.linkedin.com/in/geronimoronquillo), [Jon Mauer](https://www.linkedin.com/in/jonathan-mauer) and [Stephen Watt](https://scholar.google.com/citations?user=LXkHB_8AAAAJ&hl=en), this project aims to replicate established oncology value frameworks, such as the ISPOR Scorecard and ASCO Value Framework, using Large Language Models (LLMs). The initial goal is to validate LLM capabilities in reproducing human-derived scorecards.
 
 We are focusing on replicating a scorecard similar to the American Society of Clinical Oncology (ASCO) Value Framework (e.g., as described in [Langdon et al., 2016](https://ascopubs.org/doi/full/10.1200/JCO.2016.68.2518) or later versions). This framework assesses cancer treatments based on clinical benefit, toxicity, and symptom palliation to derive a "net health benefit" (NHB). This replication will serve as a proving ground for three primary LLM approaches:
 - Multi-Agentic Approach
