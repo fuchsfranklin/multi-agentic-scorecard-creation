@@ -1,8 +1,9 @@
 import re
-from llm_client import LLMClient # Assuming llm_client.py provides LLMClient
 import os
-import datetime # Added datetime import
-import csv # Added csv import
+import datetime
+import csv
+from llm_client import LLMClient
+import config
 
 # Trial descriptions are now extremely high-level, prompting the LLM to hypothesize details.
 
@@ -236,8 +237,8 @@ def validate_scorecard(scorecard_response):
     }
 
 # Define the path for the results file at the top level
-RESULTS_FILE_PATH = "single_llm_scorecard_results.md"
-CSV_OUTPUT_DIR = "single_llm_csv_results" # Define directory for CSV files
+RESULTS_FILE_PATH = os.path.join(os.path.dirname(__file__), '..', 'results', 'single_llm', 'single_llm_scorecard_results.md')
+CSV_OUTPUT_DIR = os.path.join(os.path.dirname(__file__), '..', 'results', 'single_llm')
 
 def main():
     # Initialize your LLMClient.
@@ -248,7 +249,7 @@ def main():
     try:
         # You might need to specify a model, e.g., model_name="openai/gpt-3.5-turbo"
         # or whatever model you intend to use via OpenRouter.
-        llm_client = LLMClient() 
+        llm_client = LLMClient(model=config.PRIMARY_MODEL) 
         print("LLM Client initialized successfully.")
         # A quick test to confirm the client is working with OpenRouter
         # print(f"Test generation: {llm_client.generate(\'Say hello.\')}")

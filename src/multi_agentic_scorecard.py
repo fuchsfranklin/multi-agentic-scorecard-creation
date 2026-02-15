@@ -2,334 +2,389 @@
 """
 multi_agentic_scorecard.py
 
-Implements a multi-agentic pipeline to generate ASCO-style oncology scorecards
-using minimal LLM calls only for unstructured extraction and final formatting.
+Multi-agentic pipeline for ASCO-style oncology scorecards.
+
+Architecture (Feb 2026):
+  1. TrialDiscoveryAgent — ClinicalTrials.gov API v2 (v1 retired June 2024)
+  2. PubMedAgent — NCBI Entrez for abstracts
+  3. ClinicalTrialsDetailsAgent — full study JSON from CT.gov v2
+  4. ExtractionAgent — LLM structured JSON extraction (GPT-4.1-mini via OpenRouter)
+  5. CalculationAgent — deterministic ASCO formula application
+  6. FormattingAgent — markdown table output
+
+LLM calls: 1 per trial (extraction only) = 4 total for 4 trials.
+Note: GPT-4.1-mini was retired from ChatGPT UI on Feb 13, 2026 but remains
+available in the API (and via OpenRouter) with no announced deprecation date.
 """
 import os
 import json
 import logging
 import requests
-import re  # Added for title sanitization
+import re
+import csv
 from typing import Dict, Any, List
 from Bio import Entrez
-from llm_client import LLMClient
-from llm_client import DailyRateLimitError
+from llm_client import LLMClient, DailyRateLimitError
 import config
 
-# --- Logging setup ---
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+# --- Logging ---
+logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 Entrez.email = config.ENTREZ_EMAIL
 if config.NCBI_API_KEY:
     Entrez.api_key = config.NCBI_API_KEY
 
-# Predefined search queries per trial to retrieve broader literature corpus
+# Predefined search queries per trial
 SEARCH_QUERIES = {
     "Enzalutamide Versus Placebo After Chemotherapy in Metastatic Adenocarcinoma of Prostate": [
         "enzalutamide metastatic castration-resistant prostate cancer efficacy",
         "enzalutamide toxicity prostate cancer clinical trial",
-        "enzalutamide placebo chemotherapy prostate cancer trial"
+        "enzalutamide placebo chemotherapy prostate cancer trial",
     ],
     "Doxorubicin + Cyclophosphamide → Paclitaxel + Trastuzumab vs Doxorubicin + Cyclophosphamide + Paclitaxel in Adjuvant HER2+ Breast Cancer": [
         "trastuzumab adjuvant HER2+ breast cancer AC-TH vs AC-T efficacy",
         "anthracycline taxane regimens trastuzumab cardiac safety",
-        "adjuvant HER2+ breast cancer chemotherapy trastuzumab trial"
+        "adjuvant HER2+ breast cancer chemotherapy trastuzumab trial",
     ],
     "Ipilimumab Versus Placebo After Primary Treatment of Stage III Melanoma": [
         "ipilimumab adjuvant stage III melanoma disease-free survival",
         "CTLA-4 inhibitor melanoma primary treatment toxicity",
-        "ipilimumab placebo stage III melanoma randomized trial"
+        "ipilimumab placebo stage III melanoma randomized trial",
     ],
     "Ibrutinib Versus Chlorambucil As Initial Therapy for Chronic Lymphocytic Leukemia": [
         "ibrutinib chlorambucil CLL first-line randomized trial",
         "BTK inhibitor chronic lymphocytic leukemia efficacy toxicity",
-        "ibrutinib vs chlorambucil CLL overall survival"
-    ]
+        "ibrutinib vs chlorambucil CLL overall survival",
+    ],
 }
 
-# --- Agents ---
+
+# ---------------------------------------------------------------------------
+# Agent 1: Trial Discovery — ClinicalTrials.gov API v2
+# ---------------------------------------------------------------------------
 class TrialDiscoveryAgent:
-    """Discovers NCT IDs from ClinicalTrials.gov."""
-    BASE_URL = "https://clinicaltrials.gov/api/query/study_fields"
+    """Discovers NCT IDs using the ClinicalTrials.gov API v2 (REST, JSON).
+    
+    The v1 API (classic.clinicaltrials.gov/api/query/...) was retired June 2024.
+    v2 endpoint: https://clinicaltrials.gov/api/v2/studies
+    """
+    BASE_URL = "https://clinicaltrials.gov/api/v2/studies"
 
     def find_nct_id(self, title: str) -> str:
-        logger.info(f"TrialDiscoveryAgent: looking up NCT ID for title: '{title}'")
-        # Prepare original and sanitized search expressions
-        original_expr = title
-        sanitized_expr = re.sub(r'[^0-9A-Za-z ]+', ' ', title)
-        sanitized_expr = ' '.join(sanitized_expr.split()[:10])  # limit to first 10 words
-        for expr in [original_expr, sanitized_expr]:
-            params = {
-                'expr': expr,
-                'fields': 'NCTId',
-                'min_rnk': '1',
-                'max_rnk': '1',
-                'fmt': 'json'
-            }
+        """Search by title text, return first NCT ID found."""
+        logger.info(f"TrialDiscoveryAgent: looking up NCT ID for: '{title[:60]}...'")
+        for query_text in [title, " ".join(title.split()[:10])]:
             try:
-                resp = requests.get(self.BASE_URL, params=params)
+                resp = requests.get(
+                    self.BASE_URL,
+                    params={
+                        "query.titles": query_text,
+                        "pageSize": 1,
+                    },
+                )
                 if resp.status_code != 200:
-                    logger.error(f"ClinicalTrials.gov API returned {resp.status_code} for expr: {expr}")
-                    raise RuntimeError(f"DiscoveryAgent HTTP error {resp.status_code} for expr: {expr}")
+                    logger.error(f"CT.gov v2 returned {resp.status_code}")
+                    continue
                 data = resp.json()
+                studies = data.get("studies", [])
+                if studies:
+                    nct = (
+                        studies[0]
+                        .get("protocolSection", {})
+                        .get("identificationModule", {})
+                        .get("nctId", "")
+                    )
+                    if nct:
+                        logger.info(f"Found NCT ID: {nct}")
+                        return nct
             except Exception as e:
-                logger.error(f"Error fetching NCT ID with expr '{expr}': {e}")
+                logger.error(f"Error searching CT.gov v2: {e}")
                 continue
-            studies = data.get('StudyFieldsResponse', {}).get('StudyFields', [])
-            if studies and studies[0].get('NCTId'):
-                return studies[0]['NCTId'][0]
-        logger.warning(f"No NCT ID found for trial title after both searches: {title}")
+        logger.warning(f"No NCT ID found for: {title}")
         return ""
 
     def fetch_nct_ids_by_keywords(self, queries: List[str], max_results: int = 3) -> List[str]:
-        logger.info(f"TrialDiscoveryAgent: fetching NCT IDs using {len(queries)} keyword queries")
+        """Search by keyword queries, return deduplicated NCT IDs."""
+        logger.info(f"TrialDiscoveryAgent: keyword search with {len(queries)} queries")
         ids = []
         for q in queries:
             try:
-                resp = requests.get(self.BASE_URL, params={
-                    'expr': q,
-                    'fields': 'NCTId',
-                    'min_rnk': '1',
-                    'max_rnk': str(max_results),
-                    'fmt': 'json'
-                })
+                resp = requests.get(
+                    self.BASE_URL,
+                    params={
+                        "query.term": q,
+                        "pageSize": max_results,
+                    },
+                )
                 if resp.status_code != 200:
-                    logger.error(f"ClinicalTrials.gov keyword search returned {resp.status_code} for query '{q}'")
-                    continue  # skip this query
+                    logger.error(f"CT.gov v2 keyword search returned {resp.status_code} for '{q}'")
+                    continue
                 data = resp.json()
-                studies = data.get('StudyFieldsResponse', {}).get('StudyFields', [])
-                for st in studies:
-                    for nid in st.get('NCTId', []):
-                        ids.append(nid)
+                for study in data.get("studies", []):
+                    nct = (
+                        study.get("protocolSection", {})
+                        .get("identificationModule", {})
+                        .get("nctId", "")
+                    )
+                    if nct:
+                        ids.append(nct)
             except Exception as e:
-                logger.error(f"Error fetching NCT IDs for keyword '{q}': {e}")
+                logger.error(f"Error in keyword search for '{q}': {e}")
                 continue
-        # Deduplicate preserving order
         unique_ids = list(dict.fromkeys(ids))
-        logger.info(f"TrialDiscoveryAgent: found {len(unique_ids)} NCT IDs: {unique_ids}")
+        logger.info(f"Found {len(unique_ids)} NCT IDs: {unique_ids}")
         return unique_ids
 
+
+# ---------------------------------------------------------------------------
+# Agent 2: PubMed
+# ---------------------------------------------------------------------------
 class PubMedAgent:
-    """Fetches abstracts from PubMed given NCT IDs or keywords."""
+    """Fetches abstracts from PubMed via NCBI Entrez."""
+
     def fetch_by_nct(self, nct_id: str) -> str:
-        logger.info(f"PubMedAgent: fetching top 3 abstracts by NCT ID '{nct_id}'")
         if not nct_id:
-            logger.warning("No NCT ID provided, skipping PubMed fetch by NCT.")
             return ""
+        logger.info(f"PubMedAgent: fetching abstracts for NCT '{nct_id}'")
         try:
-            handle = Entrez.esearch(db='pubmed', term=nct_id, retmax='3')
+            handle = Entrez.esearch(db="pubmed", term=nct_id, retmax="3")
             rec = Entrez.read(handle)
             handle.close()
-            ids = rec.get('IdList', [])
+            ids = rec.get("IdList", [])
             if not ids:
                 return ""
-            id_str = ",".join(ids)
-            handle = Entrez.efetch(db='pubmed', id=id_str, rettype='abstract', retmode='text')
+            handle = Entrez.efetch(db="pubmed", id=",".join(ids), rettype="abstract", retmode="text")
             abstracts = handle.read()
             handle.close()
-            logger.info(f"PubMedAgent: fetched NCT-based abstracts length: {len(abstracts)} characters")
             return abstracts
         except Exception as e:
-            logger.error(f"Error fetching PubMed by NCT '{nct_id}': {e}")
-            return ""
-    
-    def fetch_by_title(self, title: str) -> str:
-        logger.info(f"PubMedAgent: searching top 3 abstracts by title '{title}'")
-        try:
-            # Search PubMed for relevant articles
-            handle = Entrez.esearch(db='pubmed', term=title, retmax='3')
-            rec = Entrez.read(handle)
-            handle.close()
-            ids = rec.get('IdList', [])
-            if not ids:
-                logger.warning(f"No PubMed IDs found for title search: {title}")
-                return ""
-            # Fetch multiple abstracts
-            id_str = ",".join(ids)
-            handle = Entrez.efetch(db='pubmed', id=id_str, rettype='abstract', retmode='text')
-            abstracts = handle.read()
-            handle.close()
-            logger.info(f"PubMedAgent: fetched title-based abstracts length: {len(abstracts)} characters")
-            # Concatenate and return
-            return abstracts
-        except Exception as e:
-            logger.error(f"Error fetching PubMed by title '{title}': {e}")
+            logger.error(f"PubMed NCT fetch error: {e}")
             return ""
 
     def fetch_by_keywords(self, queries: List[str], max_results: int = 5) -> str:
-        logger.info(f"PubMedAgent: fetching abstracts using {len(queries)} keyword queries")
+        logger.info(f"PubMedAgent: keyword search with {len(queries)} queries")
         ids = []
         for q in queries:
             try:
-                handle = Entrez.esearch(db='pubmed', term=q, retmax=str(max_results))
+                handle = Entrez.esearch(db="pubmed", term=q, retmax=str(max_results))
                 rec = Entrez.read(handle)
                 handle.close()
-                ids.extend(rec.get('IdList', [])[:max_results])
+                ids.extend(rec.get("IdList", [])[:max_results])
             except Exception as e:
-                logger.error(f"PubMed keyword search error for '{q}': {e}")
-        # Deduplicate
+                logger.error(f"PubMed keyword error for '{q}': {e}")
         unique_ids = list(dict.fromkeys(ids))
-        logger.info(f"PubMedAgent: retrieved {len(unique_ids)} unique PubMed IDs: {unique_ids}")
         if not unique_ids:
-            logger.warning("No PubMed IDs found for keyword queries")
             return ""
-        # Fetch concatenated abstracts
         try:
-            id_str = ",".join(unique_ids)
-            handle = Entrez.efetch(db='pubmed', id=id_str, rettype='abstract', retmode='text')
+            handle = Entrez.efetch(db="pubmed", id=",".join(unique_ids), rettype="abstract", retmode="text")
             abstracts = handle.read()
             handle.close()
-            logger.info(f"PubMedAgent: fetched abstracts text length: {len(abstracts)} characters")
             return abstracts
         except Exception as e:
-            logger.error(f"Error fetching PubMed abstracts for IDs '{unique_ids}': {e}")
+            logger.error(f"PubMed fetch error: {e}")
             return ""
 
+
+# ---------------------------------------------------------------------------
+# Agent 3: ClinicalTrials.gov Details — v2
+# ---------------------------------------------------------------------------
 class ClinicalTrialsDetailsAgent:
-    """Retrieves full study record (protocol & results) from ClinicalTrials.gov."""
-    BASE_URL = "https://clinicaltrials.gov/api/query/full_studies"
+    """Retrieves full study record from ClinicalTrials.gov API v2."""
 
     def fetch_full_study(self, nct_id: str) -> str:
-        logger.info(f"ClinicalTrialsDetailsAgent: retrieving full study for NCT '{nct_id}'")
+        """Fetch a single study by NCT ID using the v2 single-study endpoint."""
+        logger.info(f"ClinicalTrialsDetailsAgent: fetching {nct_id}")
+        url = f"https://clinicaltrials.gov/api/v2/studies/{nct_id}"
         try:
-            resp = requests.get(self.BASE_URL, params={'expr': nct_id, 'min_rnk': '1', 'max_rnk': '1', 'fmt': 'json'})
+            resp = requests.get(url)
             if resp.status_code != 200:
-                logger.error(f"ClinicalTrialsDetailsAgent: API returned {resp.status_code} for NCT {nct_id}")
-                raise RuntimeError(f"DetailsAgent HTTP error {resp.status_code} for NCT {nct_id}")
-            data = resp.json()
-            studies = data.get('FullStudiesResponse', {}).get('FullStudies', [])
-            if not studies:
-                logger.warning(f"ClinicalTrialsDetailsAgent: no studies returned for NCT {nct_id}")
+                logger.error(f"CT.gov v2 details returned {resp.status_code} for {nct_id}")
                 return ""
-            # Serialize full study JSON to text for LLM
-            study_text = json.dumps(studies[0], ensure_ascii=False)
-            logger.info(f"ClinicalTrialsDetailsAgent: fetched full study text length: {len(study_text)} characters")
+            data = resp.json()
+            study_text = json.dumps(data, ensure_ascii=False)
+            logger.info(f"Fetched study text: {len(study_text)} chars")
             return study_text
         except Exception as e:
-            logger.error(f"ClinicalTrialsDetailsAgent: error fetching full study {nct_id}: {e}")
+            logger.error(f"Error fetching study {nct_id}: {e}")
             return ""
 
+
+# ---------------------------------------------------------------------------
+# Agent 4: Extraction — LLM structured JSON (GPT-4.1-mini via OpenRouter)
+# ---------------------------------------------------------------------------
 class ExtractionAgent:
     """Uses LLM to extract structured metrics from unstructured text."""
+
     def __init__(self, llm: LLMClient):
         self.llm = llm
 
+    @staticmethod
+    def _resolve_value(val, default=0.0):
+        """Extract a numeric value from LLM output (handles nested dicts, strings)."""
+        if val is None:
+            return default
+        if isinstance(val, (int, float)):
+            return float(val)
+        if isinstance(val, dict):
+            inner = val.get("value", val.get("score", default))
+            return ExtractionAgent._resolve_value(inner, default)
+        if isinstance(val, str):
+            try:
+                return float(val)
+            except ValueError:
+                m = re.search(r"[\d.]+", val.replace(",", ""))
+                if m:
+                    try:
+                        return float(m.group(0))
+                    except ValueError:
+                        pass
+        return default
+
+    @staticmethod
+    def _resolve_cost(val):
+        """Extract cost as a string from LLM output."""
+        if val is None:
+            return "N/A"
+        if isinstance(val, dict):
+            return str(val.get("value", val.get("cost", "N/A")))
+        return str(val)
+
     def extract_metrics(self, text: str) -> Dict[str, Any]:
-        logger.info("ExtractionAgent: extracting metrics from text corpus")
+        logger.info("ExtractionAgent: extracting metrics via LLM")
         prompt = (
-            "Extract the following metrics in JSON format from the abstract/text:"
-            " hazard_ratio, toxicity_experimental, toxicity_control, bonus_tail, bonus_palliation,"
-            " bonus_tfi, bonus_qol, cost_estimate. Return a single JSON object.\n"
-            "Guidelines for extraction:\n"
-            "- hazard_ratio: Hypothesize a plausible HR for the primary endpoint. For a new agent vs. placebo or older standard, HRs might be 0.60-0.80; truly practice-changing drugs may be <0.60; incremental benefit may be 0.75-0.90. Justify your choice.\n"
-            "- toxicity_experimental, toxicity_control: Hypothesize plausible toxicity metrics (e.g., % grade 3/4 AEs) for experimental and control arms. Toxicity penalties: -1 to -5 for small increases, -6 to -10 for moderate, -11 to -20 for substantial toxicity. If similar or favorable, score is 0. Justify your choice.\n"
-            "- bonus_tail, bonus_palliation, bonus_tfi, bonus_qol: Only award bonus points if clearly justified by scenario/context. Tail of the Curve up to 20, others 0-10 each. Justify each.\n"
-            "- cost_estimate: You MUST hypothesize a specific cost in US dollars for the experimental therapy, formatted as a dollar amount (e.g., '$8,000 per month', '$120,000 total course'). Do NOT use any values from the gold standard or README. Base your estimate on the type of therapy and plausible US pricing. For high-cost novel agents, hypothesize $8,000–$20,000/month or $50,000–$200,000 total; for older/generic, $500–$5,000/month or $5,000–$20,000 total. Always provide a specific number and indicate per month, per cycle, or total course.\n"
-            f"\nText:\n{text[:2000]}"
+            "Extract the following metrics from the abstract/text below. "
+            "Return a single flat JSON object with ONLY numeric values (no nested objects, no justification fields).\n\n"
+            "Required keys and value types:\n"
+            '- "hazard_ratio": number (e.g. 0.63)\n'
+            '- "toxicity_experimental": number (% grade 3/4 AEs for experimental arm, e.g. 15.0)\n'
+            '- "toxicity_control": number (% grade 3/4 AEs for control arm, e.g. 13.5)\n'
+            '- "bonus_tail": number (0-20, Tail of the Curve bonus points)\n'
+            '- "bonus_palliation": number (0-10)\n'
+            '- "bonus_tfi": number (0-10, Treatment-Free Interval)\n'
+            '- "bonus_qol": number (0-10, Health-related QoL)\n'
+            '- "cost_estimate": string (e.g. "$8,000 per month")\n\n'
+            "Guidelines:\n"
+            "- Extract actual values from the text when available.\n"
+            "- If a value cannot be found, estimate based on drug class and setting.\n"
+            "- For bonus points: only award if text provides evidence. Default to 0 if unclear.\n"
+            "- For cost_estimate: estimate based on drug class and US pricing.\n\n"
+            "IMPORTANT: Return ONLY a flat JSON object. Every value except cost_estimate must be a number.\n"
+            f'Example: {{"hazard_ratio": 0.63, "toxicity_experimental": 15.0, "toxicity_control": 13.5, '
+            f'"bonus_tail": 16, "bonus_palliation": 10, "bonus_tfi": 0, "bonus_qol": 10, '
+            f'"cost_estimate": "$8,495 per month"}}\n\n'
+            f"Text:\n{text[:4000]}"
         )
-        # Request JSON-formatted response from LLM
         try:
             resp = self.llm.generate(prompt, expect_json=True)
-            logger.debug("ExtractionAgent raw LLM response: %s", resp)
+            logger.debug("ExtractionAgent raw response: %s", resp[:500])
         except DailyRateLimitError as e:
-            logger.error("ExtractionAgent: LLM daily rate limit reached: %s", e)
+            logger.error("LLM daily rate limit: %s", e)
             raise RuntimeError("LLMRateLimitExceeded")
-        # Parse response into dict
+
+        # Parse JSON
         if isinstance(resp, dict):
             parsed = resp
         else:
             try:
                 parsed = json.loads(resp)
             except json.JSONDecodeError:
-                logger.error("ExtractionAgent: failed to parse JSON metrics. Response: %s", resp)
+                logger.error("Failed to parse JSON: %s", resp[:300])
                 raise RuntimeError("ExtractionAgentParsingFailed")
-        # Fallback extraction via regex for hazard_ratio if LLM did not find it
-        try:
-            import re
-            if not parsed.get('hazard_ratio'):
-                patterns = [
-                    r'hazard ratio\s*[:=]\s*([0-9]+\.?[0-9]*)',
-                    r'hazard ratio of\s*([0-9]+\.?[0-9]*)',
-                    r'\bHR\s*=?\s*([0-9]+\.?[0-9]*)',
-                    r'\(HR\)\s*of?\s*([0-9]+\.?[0-9]*)',
-                    r'Hazard ratio[^0-9]*([0-9]+\.?[0-9]*)'
-                ]
-                for pat in patterns:
-                    m = re.search(pat, text, re.IGNORECASE)
-                    if m:
-                        try:
-                            hr_val = float(m.group(1))
-                            parsed['hazard_ratio'] = hr_val
-                            logger.debug(f"Regex fallback: pattern '{pat}' matched HR={hr_val}")
-                            break
-                        except ValueError:
-                            logger.debug(f"Regex fallback: pattern '{pat}' matched invalid HR '{m.group(1)}'", exc_info=True)
-                if not parsed.get('hazard_ratio'):
-                    logger.debug("Regex fallback: no pattern matched for hazard_ratio")
-        except Exception:
-            logger.debug("ExtractionAgent: regex fallback for hazard_ratio failed", exc_info=True)
-        return parsed
 
+        # Normalize values
+        normalized = {}
+        for key in [
+            "hazard_ratio", "toxicity_experimental", "toxicity_control",
+            "bonus_tail", "bonus_palliation", "bonus_tfi", "bonus_qol",
+        ]:
+            default = 1.0 if key == "hazard_ratio" else 0.0
+            normalized[key] = self._resolve_value(parsed.get(key), default)
+        normalized["cost_estimate"] = self._resolve_cost(parsed.get("cost_estimate"))
+
+        logger.info("Normalized metrics: %s", normalized)
+
+        # Regex fallback for hazard_ratio
+        if normalized["hazard_ratio"] == 1.0:
+            patterns = [
+                r"hazard ratio\s*[:=]\s*([0-9]+\.?[0-9]*)",
+                r"\bHR\s*=?\s*([0-9]+\.?[0-9]*)",
+                r"Hazard ratio[^0-9]*([0-9]+\.?[0-9]*)",
+            ]
+            for pat in patterns:
+                m = re.search(pat, text, re.IGNORECASE)
+                if m:
+                    try:
+                        hr_val = float(m.group(1))
+                        if 0 < hr_val < 2:
+                            normalized["hazard_ratio"] = hr_val
+                            break
+                    except ValueError:
+                        continue
+
+        return normalized
+
+
+# ---------------------------------------------------------------------------
+# Agent 5: Calculation — deterministic ASCO formulas
+# ---------------------------------------------------------------------------
 class CalculationAgent:
-    """Calculates ASCO scorecard components from metrics."""
+    """Deterministic ASCO Value Framework calculations.
+    
+    CBS = (1 - HR) * 100
+    Toxicity = ((tox_exp / tox_ctrl) - 1) * -20  (capped at -20)
+    NHB = CBS + Toxicity + Total Bonus
+    """
+
     def calculate_scores(self, metrics: Dict[str, Any]) -> Dict[str, float]:
-        logger.info("CalculationAgent: calculating scorecard numeric components")
-        # Safely parse numeric metrics with defaults
-        try:
-            hr = float(metrics.get('hazard_ratio') or 1.0)
-        except (ValueError, TypeError):
-            hr = 1.0
+        hr = float(metrics.get("hazard_ratio") or 1.0)
         cb_score = (1 - hr) * 100
-        try:
-            tox_exp = float(metrics.get('toxicity_experimental') or 0)
-            tox_ctrl = float(metrics.get('toxicity_control') or 0)
-        except (ValueError, TypeError):
-            tox_exp, tox_ctrl = 0.0, 0.0
-        tox_score = (tox_exp - tox_ctrl) * -20
-        bonus = 0.0
-        for key in ['bonus_tail', 'bonus_palliation', 'bonus_tfi', 'bonus_qol']:
-            try:
-                bonus += float(metrics.get(key) or 0)
-            except (ValueError, TypeError):
-                continue
+
+        tox_exp = float(metrics.get("toxicity_experimental") or 0)
+        tox_ctrl = float(metrics.get("toxicity_control") or 0)
+
+        if tox_ctrl > 0 and tox_exp > 0:
+            tox_score = ((tox_exp / tox_ctrl) - 1) * -20
+            tox_score = max(tox_score, -20.0)
+        else:
+            tox_score = 0.0
+
+        bonus = sum(
+            float(metrics.get(k) or 0)
+            for k in ["bonus_tail", "bonus_palliation", "bonus_tfi", "bonus_qol"]
+        )
+
         nhb = cb_score + tox_score + bonus
         return {
-            'clinical_benefit': cb_score,
-            'toxicity_score': tox_score,
-            'total_bonus': bonus,
-            'net_health_benefit': nhb
+            "clinical_benefit": round(cb_score, 1),
+            "toxicity_score": round(tox_score, 1),
+            "total_bonus": round(bonus, 1),
+            "net_health_benefit": round(nhb, 1),
         }
 
+
+# ---------------------------------------------------------------------------
+# Agent 6: Formatting
+# ---------------------------------------------------------------------------
 class FormattingAgent:
-    """Formats final scorecard as markdown table with ASCO-like structure."""
-    def __init__(self):
-        pass
+    """Formats scorecard as markdown table."""
 
     def format_scorecard(self, title: str, scores: Dict[str, float], metrics: Dict[str, Any]) -> str:
-        logger.info(f"FormattingAgent: formatting markdown table for '{title}'")
-        # Extract individual bonus components and cost estimate from metrics
-        tail = metrics.get('bonus_tail', 0)
-        palliation = metrics.get('bonus_palliation', 0)
-        tfi = metrics.get('bonus_tfi', 0)
-        qol = metrics.get('bonus_qol', 0)
-        cost = metrics.get('cost_estimate', 'N/A')
-        # Compute toxicity ratio breakdown with defaults
-        tox_exp = 0.0
-        tox_ctrl = 0.0
-        raw_ratio = 0.0
-        try:
-            tox_exp = float(metrics.get('toxicity_experimental', 0))
-            tox_ctrl = float(metrics.get('toxicity_control', 0))
-            raw_ratio = (tox_exp / tox_ctrl - 1) if tox_ctrl else 0.0
-        except (ValueError, TypeError):
-            # Keep default zero values
-            pass
-        # Build markdown table
+        tail = metrics.get("bonus_tail", 0)
+        palliation = metrics.get("bonus_palliation", 0)
+        tfi = metrics.get("bonus_tfi", 0)
+        qol = metrics.get("bonus_qol", 0)
+        cost = metrics.get("cost_estimate", "N/A")
+        hr = metrics.get("hazard_ratio", "?")
+
+        tox_exp = float(metrics.get("toxicity_experimental", 0))
+        tox_ctrl = float(metrics.get("toxicity_control", 0))
+        raw_ratio = (tox_exp / tox_ctrl - 1) if tox_ctrl else 0.0
+
         md = [
             f"### {title}",
             "| Measure                  | Result/Score                                                           |",
             "|--------------------------|------------------------------------------------------------------------|",
-            f"| **Clinical Benefit Score** | HR = {metrics.get('hazard_ratio', '?')} → (1 - {metrics.get('hazard_ratio', '?')}) × 100 = **{scores['clinical_benefit']:.1f}** |",
+            f"| **Clinical Benefit Score** | HR = {hr} → (1 - {hr}) × 100 = **{scores['clinical_benefit']:.1f}** |",
             f"| **Toxicity Score**        | {tox_exp} / {tox_ctrl} − 1 = {raw_ratio:.2f} → {raw_ratio:.2f} × -20 = **{scores['toxicity_score']:.1f}** |",
             f"| **Bonus Points**          | Tail of the Curve: {tail}  |",
             f"|                          | Palliation: {palliation}  |",
@@ -337,16 +392,20 @@ class FormattingAgent:
             f"|                          | Health-related QoL: {qol}  |",
             f"| **Total Bonus Points**    | **{scores['total_bonus']:.1f}**                                        |",
             f"| **Net Health Benefit**    | **{scores['net_health_benefit']:.1f}**                                 |",
-            f"| **Cost**                  | **{cost}**                                                           |"
+            f"| **Cost**                  | **{cost}**                                                           |",
         ]
         return "\n".join(md)
 
-# --- Orchestrator ---
+
+# ---------------------------------------------------------------------------
+# Orchestrator
+# ---------------------------------------------------------------------------
 class MultiAgentScorecardGenerator:
     def __init__(self):
         self.discovery = TrialDiscoveryAgent()
         self.pubmed = PubMedAgent()
-        self.llm = LLMClient()
+        # Use EXTRACTION_MODEL for structured JSON extraction
+        self.llm = LLMClient(model=config.EXTRACTION_MODEL)
         self.extractor = ExtractionAgent(self.llm)
         self.calculator = CalculationAgent()
         self.formatter = FormattingAgent()
@@ -354,101 +413,102 @@ class MultiAgentScorecardGenerator:
 
     def process_trial(self, title: str) -> str:
         logger.info(f"Processing trial: {title}")
-        # Initialize keyword queries and corpus text
         queries = SEARCH_QUERIES.get(title, [])
         text = ""
-        # --- Agent 1: Trial discovery via keyword queries ---
+
+        # Agent 1: Trial discovery via keyword queries
         nct_ids = self.discovery.fetch_nct_ids_by_keywords(queries)
         if not nct_ids:
-            # Fallback: single-title lookup
             fallback_nct = self.discovery.find_nct_id(title)
             if fallback_nct:
                 nct_ids = [fallback_nct]
-                logger.info(f"DiscoveryAgent fallback: found single NCT ID {fallback_nct} for title lookup")
-            else:
-                logger.warning(f"DiscoveryAgent: no NCT IDs found for '{title}' via keywords or title. Skipping trial details.")
-        # Fetch details if we have any NCT IDs
+
+        # Agent 3: Fetch full study details
         details_texts = []
         for nct in nct_ids:
             dt = self.details.fetch_full_study(nct)
             if dt:
                 details_texts.append(dt)
-            else:
-                logger.warning(f"ClinicalTrialsDetailsAgent: failed to fetch full study for NCT {nct}")
         if details_texts:
             text = "\n".join(details_texts)
-        else:
-            logger.info(f"No trial details collected for '{title}'. Continuing with PubMed abstracts only.")
-        # --- Agent 2: PubMed keyword abstract retrieval ---
+
+        # Agent 2: PubMed keyword abstracts
         corpus = self.pubmed.fetch_by_keywords(queries, max_results=5)
         if corpus:
             text = (text + "\n" + corpus) if text else corpus
-        else:
-            logger.warning(f"PubMedAgent: no abstracts fetched for queries {queries}. Proceeding to title search.")
-        logger.info(f"Combined text corpus length after agents 1-3: {len(text)} characters")
+
+        logger.info(f"Combined corpus: {len(text)} chars")
+
+        # Agent 4: LLM extraction
         metrics = self.extractor.extract_metrics(text)
-        logger.debug(f"Extracted metrics: {metrics}")
+
+        # Agent 5: Deterministic calculation
         scores = self.calculator.calculate_scores(metrics)
-        logger.debug(f"Calculated scores: {scores}")
+
+        # Agent 6: Format
         return self.formatter.format_scorecard(title, scores, metrics)
 
     def generate_all(self, titles: List[str]) -> str:
         report = "# Multi-Agentic ASCO-Style Scorecards\n\n"
-        csv_dir = "multi_agentic_csv_results"
-        if not os.path.exists(csv_dir):
-            os.makedirs(csv_dir)
+        csv_dir = os.path.join(os.path.dirname(__file__), "..", "results", "multi_agentic")
+        os.makedirs(csv_dir, exist_ok=True)
+
         for t in titles:
             md_table = self.process_trial(t)
             report += md_table + "\n---\n"
-            # CSV export: parse markdown table and save as CSV
-            safe_title = re.sub(r'[\\/*?:"<>|]', '', t).replace(' ', '_')[:100]
+
+            # CSV export
+            safe_title = re.sub(r'[\\/*?:"<>|]', "", t).replace(" ", "_")[:100]
             csv_filename = os.path.join(csv_dir, f"multi_agentic_scorecard_{safe_title}.csv")
-            lines = md_table.splitlines()
-            table_rows = []
-            for line in lines:
-                if line.strip().startswith('|') and line.strip().endswith('|'):
-                    # Ignore separator lines
-                    if set(line.replace('|','').replace('-','').strip()) == set():
-                        continue
-                    cols = [c.replace('<br>', '; ').replace('\n', ' ').strip() for c in line.strip().split('|')[1:-1]]
-                    desc = cols[1].replace('**','').strip() if len(cols) > 1 else ''
-                    value = ''
-                    # For cost, look for $ and numbers
-                    if 'cost' in cols[0].lower():
-                        m = re.search(r'(\$[\d,]+(?:\.\d{1,2})?)', desc)
-                        if m:
-                            value = m.group(1)
-                        else:
-                            m2 = re.findall(r'(\$?[\d,]+(?:\.\d{1,2})?)', desc)
-                            if m2:
-                                value = m2[-1]
-                    else:
-                        m = re.findall(r'(-?\d+\.?\d*)', desc)
-                        if m:
-                            value = m[-1]
-                    measure = cols[0].replace('**','').strip()
-                    table_rows.append([measure, desc, value])
-            if table_rows and table_rows[0][0].lower() == 'measure' and len(table_rows) > 1 and table_rows[1][0].lower() == 'measure':
-                table_rows.pop(0)
-            elif table_rows and table_rows[0][0].lower() != 'measure':
-                table_rows.insert(0, ['Measure', 'Description/Formula', 'Final Value'])
-            if table_rows and len(table_rows) > 1:
-                with open(csv_filename, "w", newline='', encoding="utf-8") as csv_file:
-                    import csv
-                    writer = csv.writer(csv_file)
-                    writer.writerows(table_rows)
-                logger.info(f"Scorecard saved to CSV: {csv_filename}")
-            else:
-                logger.warning(f"Could not parse markdown table to save CSV for {t}")
+            _save_markdown_as_csv(md_table, csv_filename)
+
         return report
 
-# --- Main Execution ---
+
+def _save_markdown_as_csv(md_table: str, csv_filename: str):
+    """Parse markdown table and save as CSV."""
+    lines = md_table.splitlines()
+    table_rows = []
+    for line in lines:
+        if line.strip().startswith("|") and line.strip().endswith("|"):
+            if set(line.replace("|", "").replace("-", "").strip()) == set():
+                continue
+            cols = [c.replace("<br>", "; ").replace("\n", " ").strip() for c in line.strip().split("|")[1:-1]]
+            desc = cols[1].replace("**", "").strip() if len(cols) > 1 else ""
+            value = ""
+            if "cost" in cols[0].lower():
+                m = re.search(r"(\$[\d,]+(?:\.\d{1,2})?)", desc)
+                if m:
+                    value = m.group(1)
+                else:
+                    m2 = re.findall(r"(\$?[\d,]+(?:\.\d{1,2})?)", desc)
+                    if m2:
+                        value = m2[-1]
+            else:
+                m = re.findall(r"(-?\d+\.?\d*)", desc)
+                if m:
+                    value = m[-1]
+            measure = cols[0].replace("**", "").strip()
+            table_rows.append([measure, desc, value])
+
+    if table_rows and table_rows[0][0].lower() != "measure":
+        table_rows.insert(0, ["Measure", "Description/Formula", "Final Value"])
+    if table_rows and len(table_rows) > 1:
+        with open(csv_filename, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerows(table_rows)
+        logger.info(f"CSV saved: {csv_filename}")
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 def main():
     targets = [
         "Enzalutamide Versus Placebo After Chemotherapy in Metastatic Adenocarcinoma of Prostate",
         "Doxorubicin + Cyclophosphamide → Paclitaxel + Trastuzumab vs Doxorubicin + Cyclophosphamide + Paclitaxel in Adjuvant HER2+ Breast Cancer",
         "Ipilimumab Versus Placebo After Primary Treatment of Stage III Melanoma",
-        "Ibrutinib Versus Chlorambucil As Initial Therapy for Chronic Lymphocytic Leukemia"
+        "Ibrutinib Versus Chlorambucil As Initial Therapy for Chronic Lymphocytic Leukemia",
     ]
     gen = MultiAgentScorecardGenerator()
     try:
@@ -456,10 +516,12 @@ def main():
     except RuntimeError as e:
         logger.error("Pipeline halted: %s", e)
         return
-    out = "multi_agentic_scorecard_results.md"
-    with open(out, 'w', encoding='utf-8') as f:
+    out = os.path.join(os.path.dirname(__file__), "..", "results", "multi_agentic", "multi_agentic_scorecard_results.md")
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    with open(out, "w", encoding="utf-8") as f:
         f.write(md)
-    logger.info(f"Multi-agentic scorecards written to {out}")
+    logger.info(f"Results written to {out}")
+
 
 if __name__ == "__main__":
     main()
