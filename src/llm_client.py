@@ -4,6 +4,12 @@ OpenRouter LLM client with rate limiting, retry logic, and daily usage tracking.
 Supports both reasoning models (GPT-5 family, o3/o4-mini — no temperature/logprobs)
 and standard models (GPT-4.1-mini, Gemini 3 Flash, Claude Sonnet 4) via OpenRouter's
 OpenAI-compatible API.
+
+Structured output modes:
+  - expect_json=True: uses response_format={"type": "json_object"} (basic JSON mode)
+  - json_schema=<dict>: uses response_format={"type": "json_schema", ...} for
+    guaranteed schema-compliant output (supported by GPT-5.1-mini, GPT-4.1-mini,
+    Gemini 3 Flash, etc.)
 """
 import os
 import json
@@ -22,11 +28,13 @@ X_TITLE = config.X_TITLE
 
 # Models that don't support temperature or logprobs (reasoning models).
 # GPT-5 family are all reasoning models with internal chain-of-thought.
+# GPT-5.1-mini is the current recommended mini model (Feb 2026).
 _REASONING_MODELS = {
     "openai/o3-mini", "openai/o4-mini", "openai/o3", "openai/o3-pro",
     "openai/gpt-5", "openai/gpt-5-mini", "openai/gpt-5-nano",
     "openai/gpt-5.1", "openai/gpt-5.1-mini",
     "openai/gpt-5.2", "openai/gpt-5.2-chat",
+    "openai/gpt-5.3-codex",
 }
 
 
@@ -66,8 +74,20 @@ class LLMClient:
         temperature: float = 0.0,
         max_retries: int = 3,
         expect_json: bool = False,
+        json_schema: dict | None = None,
     ) -> str:
-        """Send a single-turn prompt and return the assistant's text response."""
+        """Send a single-turn prompt and return the assistant's text response.
+
+        Args:
+            prompt: The user message to send.
+            max_tokens: Maximum tokens in the response.
+            temperature: Sampling temperature (ignored for reasoning models).
+            max_retries: Number of retry attempts on failure.
+            expect_json: If True, use basic JSON mode (response_format=json_object).
+            json_schema: If provided, use strict JSON Schema mode for guaranteed
+                schema-compliant output. Takes precedence over expect_json.
+                Format: {"name": "...", "strict": True, "schema": {...}}
+        """
         # --- Throttle & daily limit ---
         with _usage_lock:
             usage = _load_usage()
@@ -104,7 +124,13 @@ class LLMClient:
         if not is_reasoning:
             payload["temperature"] = temperature
 
-        if expect_json:
+        # Structured output: json_schema takes precedence over expect_json
+        if json_schema is not None:
+            payload["response_format"] = {
+                "type": "json_schema",
+                "json_schema": json_schema,
+            }
+        elif expect_json:
             payload["response_format"] = {"type": "json_object"}
 
         # --- Retry loop ---

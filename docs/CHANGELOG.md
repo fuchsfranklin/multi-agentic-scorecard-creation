@@ -1,5 +1,54 @@
 # Changelog
 
+## v2.2 — February 18, 2026 Portability, Logging & Model Update
+
+### Models
+- Upgraded EXTRACTION_MODEL from `openai/gpt-4.1-mini` to `openai/gpt-5.1-mini`:
+  - GPT-4.1-mini was retired from ChatGPT on Feb 13, 2026. While still in the API
+    "at this time" per OpenAI, its long-term API availability is uncertain.
+  - GPT-5.1-mini ($0.25/$2.00 per M tokens) is the current-gen mini reasoning model.
+  - Supports json_schema structured outputs (same as GPT-4.1-mini).
+  - Is a reasoning model — temperature auto-skipped by llm_client.py.
+  - Actually cheaper than GPT-4.1-mini ($0.40/$1.60).
+- Upgraded JUDGE_MODEL from `openai/gpt-4.1-mini` to `openai/gpt-5.1-mini` (same reasoning).
+- PRIMARY_MODEL remains `google/gemini-3-flash-preview` — still the best value for
+  open-ended scorecard generation at $0.50/$3.00 per M tokens.
+- Updated .env.example with current model alternatives and pricing.
+
+### Verified (No Changes Needed)
+- Gemini 3 Flash Preview: confirmed available on OpenRouter, pricing stable at $0.50/$3.00.
+- Gemini 2.5 Flash: now stable GA at $0.30/$2.50 (pricing updated from preview).
+- LanceDB hybrid search API: stable, LinearCombinationReranker unchanged.
+- deepeval GEval: v3.7.6 latest, no breaking changes, API stable.
+- BioPython/Entrez: NCBI E-utilities API unchanged.
+- ClinicalTrials.gov v2 API: stable since June 2024 migration.
+- sentence-transformers / all-mpnet-base-v2: still current, no issues.
+- OpenRouter structured outputs: json_schema mode works with both GPT-5.1-mini and Gemini 3 Flash.
+
+### New Files
+- `run_all.py` — Master orchestrator that runs all 3 approaches + evaluation in one command,
+  with full file logging. Supports `--only`, `--skip-eval`, `--with-deepeval`, `--dry-run` flags.
+- `setup_and_validate.py` — Pre-flight validation script (8 checks: Python version, pip deps,
+  .env, OpenRouter API, ClinicalTrials.gov, PubMed, embedding model, LanceDB, output dirs).
+  Zero cost, no LLM calls.
+- `src/log_setup.py` — Shared logging module. Creates timestamped log files in `logs/` with
+  both file and console output. Includes `TeeWriter` to capture print() output.
+- `logs/` directory — All run logs committed to git for remote debugging.
+
+### Logging
+- Every `run_all.py` execution produces:
+  - `logs/run_all_{timestamp}.log` — full stdout/stderr + structured logging
+  - `logs/run_summary_{timestamp}.json` — machine-readable status, timing, errors, config used
+- Designed for remote execution workflow: run on another machine, commit logs + results,
+  pull locally to debug.
+
+### Portability Fixes
+- Fixed `.gitignore`: was ignoring `config.py` globally (matching `src/config.py`), now only
+  ignores `.env`. Added proper Python/IDE/OS ignores.
+- `src/config.py` is now tracked in git (was previously excluded).
+- Updated README with `setup_and_validate.py` in setup instructions and `run_all.py` as the
+  recommended way to run.
+
 ## v2.1 — February 15, 2026 Methodology Verification
 
 ### Models

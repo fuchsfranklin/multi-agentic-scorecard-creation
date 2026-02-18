@@ -16,8 +16,8 @@ The ASCO framework scores treatments on:
 
 | Approach | Method | Model | What It Tests |
 |----------|--------|-------|---------------|
-| **Single LLM** | Give the LLM a trial name + scenario hint. It hypothesizes all values and calculates the scorecard in 3 chained prompts. | Gemini 3 Flash Preview | Baseline: what can an LLM do with zero external data? |
-| **Multi-Agentic** | Specialized agents fetch data from ClinicalTrials.gov (v2 API) and PubMed, then an LLM extracts metrics as structured JSON. A deterministic calculator applies ASCO formulas. | GPT-4.1-mini (extraction) | Can structured data retrieval + extraction improve accuracy? |
+| **Single LLM** | Give the LLM a trial name + scenario hint. It hypothesizes all values and calculates the scorecard in a single structured prompt. | Gemini 3 Flash Preview | Baseline: what can an LLM do with zero external data? |
+| **Multi-Agentic** | Specialized agents fetch data from ClinicalTrials.gov (v2 API) and PubMed, then an LLM extracts metrics via JSON Schema structured output. A deterministic calculator applies ASCO formulas. | GPT-5.1-mini (extraction) | Can structured data retrieval + extraction improve accuracy? |
 | **RAG-LLM** | Fetch PubMed abstracts, embed with all-mpnet-base-v2, store in LanceDB, retrieve via hybrid search (vector + BM25), then prompt the LLM with context. | Gemini 3 Flash Preview | Does retrieval-augmented generation improve grounding? |
 
 ## Models & Infrastructure (Feb 2026)
@@ -26,12 +26,15 @@ All LLM calls go through [OpenRouter](https://openrouter.ai/) (OpenAI-compatible
 
 | Role | Model | Cost (per 1M tokens) | Why |
 |------|-------|---------------------|-----|
-| Scorecard generation | `google/gemini-3-flash-preview` | $0.50 in / $3.00 out | Current-gen reasoning, 30% more token-efficient than 2.5 Flash, 90.4% GPQA Diamond |
-| Structured extraction | `openai/gpt-4.1-mini` | $0.40 in / $1.60 out | Non-reasoning, fast structured JSON output (still available in API, only retired from ChatGPT UI) |
-| Evaluation judge | `openai/gpt-4.1-mini` | $0.40 in / $1.60 out | Consistent, affordable evaluation |
+| Scorecard generation | `google/gemini-3-flash-preview` | $0.50 in / $3.00 out | Current-gen reasoning (Dec 2025), 1M context, 90.4% GPQA Diamond, 78% SWE-bench |
+| Structured extraction | `openai/gpt-5.1-mini` | $0.25 in / $2.00 out | Current-gen mini reasoning, strong structured output via json_schema |
+| Evaluation judge | `openai/gpt-5.1-mini` | $0.25 in / $2.00 out | Consistent, affordable evaluation |
 
 Key infrastructure updates from the original version:
 - **Gemini 3 Flash Preview** — upgraded from Gemini 2.5 Flash Preview. Current-generation model with significantly better reasoning benchmarks and 30% token efficiency improvement.
+- **GPT-5.1-mini** — upgraded from GPT-4.1-mini (retired from ChatGPT Feb 13, 2026). Current-gen mini reasoning model with strong structured output support. Cheaper ($0.25/$2.00 vs $0.40/$1.60) and future-proof.
+- **JSON Schema structured outputs** — multi-agentic extraction uses `response_format=json_schema` for guaranteed schema compliance, eliminating JSON parsing failures.
+- **Single-prompt scorecard generation** — single_llm reduced from 3 chained prompts to 1 comprehensive prompt per trial, cutting LLM calls from 12 to 4 and eliminating inter-prompt value drift.
 - **ClinicalTrials.gov API v2** — the v1 API was retired June 2024. Multi-agentic pipeline fully migrated.
 - **LanceDB hybrid search** — combines vector similarity (semantic) with BM25 full-text search, reranked with LinearCombinationReranker (70% semantic / 30% keyword).
 - **all-mpnet-base-v2 embeddings** — upgraded from all-MiniLM-L6-v2 (384d → 768d). Better quality for biomedical text retrieval.
@@ -90,7 +93,7 @@ Evaluated against the gold standard NHB values using deterministic metrics (MAPE
 | Multi-Agentic | 0.0% | −0.822 | Fixed (CT.gov v2 + JSON parsing), needs re-run |
 | RAG-LLM | 59.0% | 0.795 | Working |
 
-Results above are from the previous model (o3-mini). Re-running with the updated models (Gemini 3 Flash, GPT-4.1-mini) is expected to improve accuracy.
+Results above are from the previous model (o3-mini). Re-running with the updated models (Gemini 3 Flash, GPT-5.1-mini) is expected to improve accuracy.
 
 ## Data Sources
 
@@ -117,13 +120,22 @@ pip install -r requirements.txt
 copy .env.example .env  # Windows
 # cp .env.example .env  # Linux/macOS
 # Edit .env with your OPENROUTER_API_KEY and ENTREZ_EMAIL
+
+# Validate everything works (no LLM calls, no cost)
+python setup_and_validate.py
 ```
 
 ## Running
 
 ```bash
-# Run individual approaches
-python src/single_llm_scorecard.py      # 12 LLM calls (3 prompts × 4 trials)
+# RECOMMENDED: Run everything with full logging
+python run_all.py                    # All 3 approaches + evaluation
+python run_all.py --with-deepeval    # Also run LLM-as-judge metrics (~$0.06 extra)
+python run_all.py --only single_llm  # Run just one approach
+python run_all.py --dry-run          # Validate setup only (no LLM calls)
+
+# Or run individual approaches directly
+python src/single_llm_scorecard.py      # 4 LLM calls (1 prompt × 4 trials)
 python src/multi_agentic_scorecard.py   # 4 LLM calls (1 extraction × 4 trials)
 python src/rag_llm_scorecard.py         # 4 LLM calls (1 prompt × 4 trials)
 
@@ -136,37 +148,53 @@ python src/evaluate.py --with-deepeval
 
 Results are written to `results/{approach}/` as both markdown and CSV files.
 
+## Logging & Debugging
+
+All runs via `run_all.py` produce:
+- `logs/run_all_{timestamp}.log` — full stdout/stderr + structured logging
+- `logs/run_summary_{timestamp}.json` — machine-readable status, timing, errors, config used
+
+When running on a remote machine, commit and push the `logs/` and `results/` directories, then pull locally to debug here. The JSON summaries make it easy to identify which step failed and why.
+
 ## LLM Call Budget
 
 | Script | LLM Calls | Free API Calls | Estimated Cost |
 |--------|----------:|---------------:|---------------:|
-| `single_llm_scorecard.py` | 12 | 0 | ~$0.05 |
+| `single_llm_scorecard.py` | 4 | 0 | ~$0.02 |
 | `multi_agentic_scorecard.py` | 4 | ~30 (PubMed + CT.gov) | ~$0.01 |
 | `rag_llm_scorecard.py` | 4 | ~20 (PubMed) | ~$0.03 |
 | `evaluate.py` | 0 | 0 | Free |
-| `evaluate.py --with-deepeval` | 36 | 0 | ~$0.06 |
-| **Total (full run)** | **56** | **~50** | **~$0.15** |
+| `evaluate.py --with-deepeval` | 36 | 0 | ~$0.05 |
+| **Total (full run)** | **48** | **~50** | **~$0.11** |
 
 ## Project Structure
 
 ```
+├── run_all.py                     # Master orchestrator — runs everything with logging
+├── setup_and_validate.py          # Pre-flight checks for new machines (no cost)
 ├── src/
 │   ├── config.py                  # Centralized config (loads from .env)
+│   ├── log_setup.py               # Shared logging (file + console, timestamped)
 │   ├── llm_client.py              # OpenRouter API client with rate limiting
 │   ├── gold_standard.py           # Gold standard data (Langdon et al., 2016)
 │   ├── single_llm_scorecard.py    # Single LLM approach (Gemini 3 Flash Preview)
-│   ├── multi_agentic_scorecard.py # Multi-agentic pipeline (GPT-4.1-mini + CT.gov v2)
+│   ├── multi_agentic_scorecard.py # Multi-agentic pipeline (GPT-5.1-mini + CT.gov v2)
 │   ├── rag_llm_scorecard.py       # RAG approach (LanceDB hybrid search + Gemini 3 Flash Preview)
-│   └── evaluate.py                # Evaluation pipeline (deterministic + deepeval GEval)
-├── results/
+│   ├── evaluate.py                # Evaluation pipeline (deterministic + deepeval GEval)
+│   └── test_apis.py               # Smoke test for external APIs (no LLM cost)
+├── results/                       # All scorecard outputs (committed to git)
 │   ├── single_llm/                # Single LLM outputs (CSV + markdown)
 │   ├── multi_agentic/             # Multi-agentic outputs
 │   ├── rag_llm/                   # RAG outputs
+│   ├── deep_outputs/              # MOA-DeepOutputs outputs
 │   └── evaluation_report.md       # Auto-generated comparison report
+├── logs/                          # Run logs (committed to git for remote debugging)
+│   ├── run_all_{timestamp}.log    # Full stdout/stderr capture
+│   └── run_summary_{timestamp}.json  # Machine-readable run status + errors
 ├── docs/
 │   ├── ISPOR_PAPER_MARKDOWN_FORMAT.md  # ASCO framework reference (Langdon et al.)
-│   └── EVALUATION_METRICS.md           # Metric definitions
-├── lancedb/                       # LanceDB vector store (RAG embeddings)
+│   ├── EVALUATION_METRICS.md           # Metric definitions
+│   └── CHANGELOG.md                    # Version history
 ├── requirements.txt
 └── .env.example
 ```

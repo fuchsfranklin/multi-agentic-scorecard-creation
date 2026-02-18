@@ -1,5 +1,6 @@
-# rag_llm_scorecard.py
 """
+rag_llm_scorecard.py
+
 RAG-based ASCO-style scorecard generation using LanceDB hybrid search.
 
 Architecture (Feb 2026):
@@ -7,7 +8,9 @@ Architecture (Feb 2026):
   2. Embed with all-mpnet-base-v2 (768d, better than MiniLM for biomedical text)
   3. Store in LanceDB with FTS index for hybrid search
   4. Retrieve via hybrid search (vector + BM25) with LinearCombinationReranker
+     (70% semantic / 30% keyword — optimized for biomedical text)
   5. Generate scorecard with Gemini 3 Flash Preview via OpenRouter
+     (current-gen reasoning model, $0.50/$3.00 per M tokens)
 
 LLM calls: 1 per trial = 4 total for 4 trials.
 """
@@ -17,7 +20,7 @@ import logging
 import time
 import re
 import csv
-from typing import List, Any
+from typing import List
 
 import requests
 from Bio import Entrez
@@ -27,6 +30,7 @@ from sentence_transformers import SentenceTransformer
 
 from llm_client import LLMClient
 import config
+from gold_standard import TRIAL_NAMES
 
 # --- Configuration ---
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -35,14 +39,6 @@ logger = logging.getLogger(__name__)
 Entrez.email = config.ENTREZ_EMAIL
 if config.NCBI_API_KEY:
     Entrez.api_key = config.NCBI_API_KEY
-
-
-# --- Helper Functions ---
-def clean_text(text):
-    if not text:
-        return ""
-    text = re.sub(r"\s+", " ", text)
-    return text.strip()
 
 
 # --- PubMed Data Fetching ---
@@ -94,12 +90,14 @@ def fetch_pubmed_data(keywords, max_results=5, exclude_pmid=None, scenario_name=
                 title = article.get("ArticleTitle", "No title")
                 abstract_parts = article.get("Abstract", {}).get("AbstractText", [])
                 abstract = " ".join([str(part) for part in abstract_parts if str(part)])
-                text_content = f"PubMed Article: {pmid}\nTitle: {clean_text(title)}\nAbstract: {clean_text(abstract)}"
+                text_content = (
+                    f"PubMed Article: {pmid}\n"
+                    f"Title: {re.sub(r'\\s+', ' ', title).strip()}\n"
+                    f"Abstract: {re.sub(r'\\s+', ' ', abstract).strip()}"
+                )
                 documents.append({"id": f"pmid_{pmid}", "text": text_content, "source": "PubMed"})
             except Exception as e:
                 logger.warning(f"[{scenario_name}] Error processing article: {e}")
-                continue
-
         logger.info(f"[{scenario_name}] Fetched {len(documents)} PubMed documents")
         return documents
     except Exception as e:
@@ -121,7 +119,6 @@ def setup_vector_db(embedding_dimension):
 
     try:
         table = db.open_table(config.VECTOR_DB_TABLE_NAME)
-        # Check if existing table has matching vector dimension
         existing_schema = table.schema
         for field in existing_schema:
             if field.name == "vector":
@@ -183,7 +180,7 @@ def create_fts_index(table):
 # --- Hybrid Search Query ---
 def query_vector_db(query_text, vector_db_table, sentence_model, n_results=5):
     """Query LanceDB using hybrid search (vector + FTS) with reranking.
-    
+
     Falls back to pure vector search if FTS index is not available.
     """
     try:
@@ -220,88 +217,188 @@ def query_vector_db(query_text, vector_db_table, sentence_model, n_results=5):
 
 
 # --- RAG Scorecard Generation ---
-def generate_scorecard_table_with_rag(
-    table_title, table_keywords_for_retrieval,
-    vector_db_table, llm_client, sentence_model, scenario_hint="",
-):
-    """Generate a single ASCO-style scorecard using RAG context."""
-    logger.info(f"Generating RAG scorecard for: {table_title}")
+SCORECARD_PROMPT = """You are an expert oncologist creating an ASCO Value Framework scorecard.
 
-    retrieval_query = " ".join(table_keywords_for_retrieval)
-    retrieved_chunks = query_vector_db(retrieval_query, vector_db_table, sentence_model, n_results=5)
+**Trial:** {title}
+**Context:** {scenario_hint}
 
-    if not retrieved_chunks:
-        context_str = "No specific context retrieved from knowledge base."
-    else:
-        context_str = "\n\n---\n\n".join(retrieved_chunks)
-
-    prompt = f"""
-You are an expert oncologist tasked with creating an ASCO Value Framework style scorecard.
-Generate a scorecard for the trial: '{table_title}'.
-Use the scenario hint and retrieved context for general understanding only.
-Do NOT copy specific quantitative data from the context if it appears to be from the exact trial.
-Instead, HYPOTHESIZE plausible values based on your understanding.
-
-**Trial Name:** {table_title}
-**Scenario Hint:** {scenario_hint}
-
-**Retrieved Context (for general understanding):**
+**Retrieved Literature (for general understanding — do NOT copy exact values):**
 ---
-{context_str}
+{context}
 ---
 
 **Instructions:**
-1. Hypothesize: HR, toxicity metrics, bonus points, and cost (specific USD amount).
-2. Calculate using ASCO formulas:
-   - CBS = (1 - HR) * 100
-   - Toxicity = ((exp_tox/ctrl_tox) - 1) * -20 (or 0 if similar)
+1. Use the retrieved literature to inform your understanding of this drug class,
+   typical efficacy ranges, and toxicity profiles.
+2. HYPOTHESIZE plausible values for: HR, toxicity metrics, bonus points, cost.
+3. CALCULATE using ASCO formulas:
+   - CBS = (1 - HR) × 100
+   - Toxicity = ((exp_tox / ctrl_tox) - 1) × -20 (or 0 if similar)
    - NHB = CBS + Toxicity + Total Bonus
-3. Format as markdown table:
+4. Format as markdown table:
 
-| Measure                  | Result/Score                                                                 |
-|--------------------------|------------------------------------------------------------------------------|
-| **Clinical Benefit Score** | (1 - [HR]) * 100 = **[Score]**                                              |
-| **Toxicity Score**        | [Explanation → **Score**]                                                    |
-| **Bonus Points**          | Tail of the Curve: [Points]                                                  |
-|                          | Palliation: [Points]                                                         |
-|                          | Treatment-Free Interval: [Points]                                            |
-|                          | Health-related QoL: [Points]                                                 |
-| **Total Bonus Points**    | **[Sum]**                                                                    |
-| **Net Health Benefit**    | **[CBS + Tox + Bonus]**                                                      |
-| **Cost (...)**            | **[Specific USD amount]**                                                    |
+| Measure | Result/Score |
+|---------|-------------|
+| **Clinical Benefit Score** | HR = [value] → (1 - [HR]) × 100 = **[CBS]** |
+| **Toxicity Score** | [exp]% / [ctrl]% - 1 = [ratio] → [ratio] × -20 = **[score]** |
+| **Bonus Points** | Tail of the Curve: [pts], Palliation: [pts], TFI: [pts], QoL: [pts] |
+| **Total Bonus Points** | **[sum]** |
+| **Net Health Benefit** | [CBS] + [Tox] + [Bonus] = **[NHB]** |
+| **Cost (...)** | **$[amount]** |
 
-Ensure final scores are bolded. Generate the scorecard now:
+Show formulas with actual numbers. Bold final scores. Verify NHB arithmetic.
 """
+
+
+def generate_scorecard_with_rag(title, rag_keywords, vector_db_table, llm_client,
+                                 sentence_model, scenario_hint=""):
+    """Generate a single ASCO-style scorecard using RAG context."""
+    logger.info(f"Generating RAG scorecard for: {title}")
+
+    retrieval_query = " ".join(rag_keywords)
+    retrieved_chunks = query_vector_db(retrieval_query, vector_db_table, sentence_model, n_results=5)
+
+    context = "\n\n---\n\n".join(retrieved_chunks) if retrieved_chunks else "No context retrieved."
+
+    prompt = SCORECARD_PROMPT.format(
+        title=title,
+        scenario_hint=scenario_hint,
+        context=context,
+    )
 
     try:
         response = llm_client.generate(prompt)
-        logger.info(f"LLM response received for {table_title}")
+        logger.info(f"LLM response received for {title}")
         return response
     except Exception as e:
-        logger.error(f"LLM call failed for '{table_title}': {e}")
-        return f"Error generating scorecard for '{table_title}': {e}"
+        logger.error(f"LLM call failed for '{title}': {e}")
+        return f"Error generating scorecard for '{title}': {e}"
 
 
-# --- Main Orchestration ---
+def _save_markdown_as_csv(md_table: str, csv_filename: str):
+    """Parse markdown table and save as CSV."""
+    lines = md_table.splitlines()
+    table_rows = []
+    for line in lines:
+        if not (line.strip().startswith("|") and line.strip().endswith("|")):
+            continue
+        stripped = line.replace("|", "").replace("-", "").replace(":", "").strip()
+        if not stripped:
+            continue
+        cols = [c.strip() for c in line.strip().split("|")[1:-1]]
+        if len(cols) < 2:
+            continue
+        desc = cols[1].replace("**", "").strip()
+        value = ""
+        if "cost" in cols[0].lower():
+            m = re.search(r"(\$[\d,]+(?:\.\d{1,2})?)", desc)
+            value = m.group(1) if m else ""
+        else:
+            nums = re.findall(r"(-?\d+\.?\d*)", desc)
+            if nums:
+                value = nums[-1]
+        measure = cols[0].replace("**", "").strip()
+        table_rows.append([measure, desc, value])
+
+    if table_rows and table_rows[0][0].lower() != "measure":
+        table_rows.insert(0, ["Measure", "Description/Formula", "Final Value"])
+    if table_rows and len(table_rows) > 1:
+        with open(csv_filename, "w", newline="", encoding="utf-8") as f:
+            csv.writer(f).writerows(table_rows)
+        logger.info(f"CSV saved: {csv_filename}")
+
+
+# --- Trial Definitions ---
+SCORECARD_TABLES = [
+    {
+        "title": "Enzalutamide Versus Placebo After Chemotherapy in Metastatic Adenocarcinoma of Prostate",
+        "pubmed_keywords": [
+            "enzalutamide prostate cancer efficacy",
+            "enzalutamide toxicity",
+            "metastatic castration-resistant prostate cancer outcomes",
+        ],
+        "rag_keywords": [
+            "enzalutamide general information",
+            "metastatic prostate cancer background",
+            "hormone therapy principles",
+        ],
+        "scenario_hint": (
+            "A trial of enzalutamide vs placebo in metastatic prostate cancer "
+            "post-chemotherapy. Hypothesize plausible efficacy and toxicities."
+        ),
+    },
+    {
+        "title": "Doxorubicin + Cyclophosphamide → Paclitaxel + Trastuzumab vs Doxorubicin + Cyclophosphamide + Paclitaxel in Adjuvant HER2+ Breast Cancer",
+        "pubmed_keywords": [
+            "trastuzumab adjuvant breast cancer overview",
+            "HER2 targeted therapy principles",
+            "AC-TH vs AC-T breast cancer",
+        ],
+        "rag_keywords": [
+            "trastuzumab overview",
+            "adjuvant HER2+ breast cancer context",
+            "targeted therapy breast cancer",
+        ],
+        "scenario_hint": (
+            "A trial comparing trastuzumab-containing (AC-TH) vs non-trastuzumab "
+            "(AC-T) regimen in adjuvant HER2+ breast cancer."
+        ),
+    },
+    {
+        "title": "Ipilimumab Versus Placebo After Primary Treatment of Stage III Melanoma",
+        "pubmed_keywords": [
+            "ipilimumab adjuvant melanoma background",
+            "CTLA-4 inhibitor mechanism",
+            "immunotherapy toxicity melanoma",
+        ],
+        "rag_keywords": [
+            "ipilimumab general information",
+            "adjuvant melanoma context",
+            "immunotherapy principles",
+        ],
+        "scenario_hint": (
+            "A trial of ipilimumab vs placebo in adjuvant Stage III melanoma. "
+            "Expect significant immune-related toxicities."
+        ),
+    },
+    {
+        "title": "Ibrutinib Versus Chlorambucil As Initial Therapy for Chronic Lymphocytic Leukemia",
+        "pubmed_keywords": [
+            "ibrutinib CLL first-line context",
+            "BTK inhibitor principles",
+            "ibrutinib vs chlorambucil CLL",
+        ],
+        "rag_keywords": [
+            "ibrutinib general information",
+            "CLL first-line treatment",
+            "BTK inhibitor class effects",
+        ],
+        "scenario_hint": (
+            "A trial comparing ibrutinib (targeted) vs chlorambucil (chemo) as "
+            "first-line CLL treatment. Expect significant efficacy benefit."
+        ),
+    },
+]
+
+
+# --- Main ---
 def main():
-    logger.info("Starting RAG-based scorecard pipeline (LanceDB hybrid search)")
+    print("=" * 60)
+    print("  RAG-LLM Scorecard Generation (LanceDB Hybrid Search)")
+    print(f"  Model: {config.PRIMARY_MODEL}")
+    print(f"  Embedding: {config.EMBEDDING_MODEL_FOR_RAG}")
+    print("=" * 60)
 
     # Initialize embedding model
     try:
-        logger.info(f"Loading embedding model: {config.EMBEDDING_MODEL_FOR_RAG}")
         sentence_model = SentenceTransformer(config.EMBEDDING_MODEL_FOR_RAG)
-        logger.info(f"Embedding dimension: {config.EMBEDDING_DIMENSION}")
+        logger.info(f"Loaded embedding model: {config.EMBEDDING_MODEL_FOR_RAG}")
     except Exception as e:
         logger.error(f"Failed to load embedding model: {e}")
         return
 
-    # Initialize LLM client with PRIMARY_MODEL
-    try:
-        llm_client = LLMClient(model=config.PRIMARY_MODEL)
-        logger.info(f"LLMClient initialized with model: {config.PRIMARY_MODEL}")
-    except Exception as e:
-        logger.error(f"Failed to initialize LLMClient: {e}")
-        return
+    # Initialize LLM client
+    llm_client = LLMClient(model=config.PRIMARY_MODEL)
 
     # Initialize vector DB
     try:
@@ -310,39 +407,11 @@ def main():
         logger.error(f"LanceDB setup failed: {e}")
         return
 
-    # Trial definitions
-    scorecard_tables = [
-        {
-            "title": "Enzalutamide Versus Placebo After Chemotherapy in Metastatic Adenocarcinoma of Prostate",
-            "pubmed_keywords": ["enzalutamide prostate cancer efficacy", "enzalutamide toxicity", "metastatic castration-resistant prostate cancer outcomes"],
-            "rag_keywords": ["enzalutamide general information", "metastatic prostate cancer background", "hormone therapy principles"],
-            "scenario_hint": "A trial of enzalutamide vs placebo in metastatic prostate cancer post-chemotherapy. Hypothesize plausible efficacy and toxicities for this drug class.",
-        },
-        {
-            "title": "Doxorubicin + Cyclophosphamide → Paclitaxel + Trastuzumab vs Doxorubicin + Cyclophosphamide + Paclitaxel in Adjuvant HER2+ Breast Cancer",
-            "pubmed_keywords": ["trastuzumab adjuvant breast cancer overview", "HER2 targeted therapy principles", "AC-TH vs AC-T breast cancer"],
-            "rag_keywords": ["trastuzumab overview", "adjuvant HER2+ breast cancer context", "targeted therapy breast cancer"],
-            "scenario_hint": "A trial comparing trastuzumab-containing (AC-TH) vs non-trastuzumab (AC-T) regimen in adjuvant HER2+ breast cancer.",
-        },
-        {
-            "title": "Ipilimumab Versus Placebo After Primary Treatment of Stage III Melanoma",
-            "pubmed_keywords": ["ipilimumab adjuvant melanoma background", "CTLA-4 inhibitor mechanism", "immunotherapy toxicity melanoma"],
-            "rag_keywords": ["ipilimumab general information", "adjuvant melanoma context", "immunotherapy principles"],
-            "scenario_hint": "A trial of ipilimumab vs placebo in adjuvant Stage III melanoma. Expect significant immune-related toxicities.",
-        },
-        {
-            "title": "Ibrutinib Versus Chlorambucil As Initial Therapy for Chronic Lymphocytic Leukemia",
-            "pubmed_keywords": ["ibrutinib CLL first-line context", "BTK inhibitor principles", "ibrutinib vs chlorambucil CLL"],
-            "rag_keywords": ["ibrutinib general information", "CLL first-line treatment", "BTK inhibitor class effects"],
-            "scenario_hint": "A trial comparing ibrutinib (targeted) vs chlorambucil (chemo) as first-line CLL treatment. Expect significant efficacy benefit for ibrutinib.",
-        },
-    ]
-
     # Fetch PubMed data
     all_documents = []
     exclude_pmid = getattr(config, "EXCLUDE_PMID", None)
 
-    for table_def in scorecard_tables:
+    for table_def in SCORECARD_TABLES:
         docs = fetch_pubmed_data(
             table_def["pubmed_keywords"],
             max_results=5,
@@ -352,14 +421,12 @@ def main():
         all_documents.extend(docs)
         time.sleep(0.5)
 
-    # Deduplicate
+    # Deduplicate and ingest
     unique_docs = list({doc["id"]: doc for doc in all_documents}.values())
     logger.info(f"Total unique PubMed documents: {len(unique_docs)}")
 
-    # Ingest into LanceDB
     if unique_docs:
         ingest_documents_to_db(unique_docs, vector_db_table, sentence_model)
-        # Create FTS index for hybrid search
         create_fts_index(vector_db_table)
 
     # Verify records
@@ -378,66 +445,32 @@ def main():
     rag_csv_dir = os.path.join(os.path.dirname(__file__), "..", "results", "rag_llm")
     os.makedirs(rag_csv_dir, exist_ok=True)
 
-    for table_def in scorecard_tables:
+    for table_def in SCORECARD_TABLES:
         title = table_def["title"]
-        markdown_table = generate_scorecard_table_with_rag(
-            table_title=title,
-            table_keywords_for_retrieval=table_def["rag_keywords"],
+        markdown = generate_scorecard_with_rag(
+            title=title,
+            rag_keywords=table_def["rag_keywords"],
             vector_db_table=vector_db_table,
             llm_client=llm_client,
             sentence_model=sentence_model,
             scenario_hint=table_def["scenario_hint"],
         )
-        output_md += f"## Scorecard for: {title}\n\n"
-        output_md += f"**Scenario Hint:** {table_def['scenario_hint']}\n\n"
-        output_md += markdown_table
+        output_md += f"## {title}\n\n"
+        output_md += f"**Scenario:** {table_def['scenario_hint']}\n\n"
+        output_md += markdown
         output_md += "\n\n---\n\n"
 
         # CSV export
         safe_title = re.sub(r'[\\/*?:"<>|]', "", title).replace(" ", "_")[:100]
         csv_filename = os.path.join(rag_csv_dir, f"rag_llm_scorecard_{safe_title}.csv")
-        _save_markdown_as_csv(markdown_table, csv_filename)
+        _save_markdown_as_csv(markdown, csv_filename)
 
     # Save markdown report
-    output_filename = os.path.join(os.path.dirname(__file__), "..", "results", "rag_llm", "rag_llm_asco_scorecard_results_pubmed_lancedb.md")
-    try:
-        with open(output_filename, "w", encoding="utf-8") as f:
-            f.write(output_md)
-        logger.info(f"Results saved to {output_filename}")
-    except IOError as e:
-        logger.error(f"Failed to write results: {e}")
-
-    logger.info("RAG pipeline finished.")
-
-
-def _save_markdown_as_csv(md_table: str, csv_filename: str):
-    """Parse markdown table and save as CSV."""
-    lines = md_table.splitlines()
-    table_rows = []
-    for line in lines:
-        if line.strip().startswith("|") and line.strip().endswith("|"):
-            if set(line.replace("|", "").replace("-", "").strip()) == set():
-                continue
-            cols = [c.strip() for c in line.strip().split("|")[1:-1]]
-            desc = cols[1].replace("**", "").strip() if len(cols) > 1 else ""
-            value = ""
-            if "cost" in cols[0].lower():
-                m = re.search(r"(\$[\d,]+(?:\.\d{1,2})?)", desc)
-                value = m.group(1) if m else ""
-            else:
-                m = re.findall(r"(-?\d+\.?\d*)", desc)
-                if m:
-                    value = m[-1]
-            measure = cols[0].replace("**", "").strip()
-            table_rows.append([measure, desc, value])
-
-    if table_rows and table_rows[0][0].lower() != "measure":
-        table_rows.insert(0, ["Measure", "Description/Formula", "Final Value"])
-    if table_rows and len(table_rows) > 1:
-        with open(csv_filename, "w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            writer.writerows(table_rows)
-        logger.info(f"CSV saved: {csv_filename}")
+    output_path = os.path.join(os.path.dirname(__file__), "..", "results", "rag_llm",
+                               "rag_llm_asco_scorecard_results_pubmed_lancedb.md")
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(output_md)
+    print(f"\nResults saved to: {output_path}")
 
 
 if __name__ == "__main__":

@@ -8,13 +8,20 @@ Architecture (Feb 2026):
   1. TrialDiscoveryAgent — ClinicalTrials.gov API v2 (v1 retired June 2024)
   2. PubMedAgent — NCBI Entrez for abstracts
   3. ClinicalTrialsDetailsAgent — full study JSON from CT.gov v2
-  4. ExtractionAgent — LLM structured JSON extraction (GPT-4.1-mini via OpenRouter)
+  4. ExtractionAgent — LLM structured JSON extraction via json_schema mode
+     (GPT-5.1-mini via OpenRouter, guaranteed schema compliance)
   5. CalculationAgent — deterministic ASCO formula application
-  6. FormattingAgent — markdown table output
+  6. FormattingAgent — markdown table + CSV output
 
 LLM calls: 1 per trial (extraction only) = 4 total for 4 trials.
-Note: GPT-4.1-mini was retired from ChatGPT UI on Feb 13, 2026 but remains
-available in the API (and via OpenRouter) with no announced deprecation date.
+
+Key improvement over previous version:
+  - Uses response_format=json_schema instead of json_object, which guarantees
+    the response matches our exact schema (no nested objects, no extra fields).
+    This eliminates the need for _resolve_value() fallback parsing.
+  - Upgraded from GPT-4.1-mini to GPT-5.1-mini (current-gen, Feb 2026).
+    GPT-5.1-mini is a reasoning model, so temperature is auto-skipped by
+    llm_client.py. Structured output support is maintained via json_schema.
 """
 import os
 import json
@@ -26,9 +33,10 @@ from typing import Dict, Any, List
 from Bio import Entrez
 from llm_client import LLMClient, DailyRateLimitError
 import config
+from gold_standard import TRIAL_NAMES
 
 # --- Logging ---
-logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 Entrez.email = config.ENTREZ_EMAIL
 if config.NCBI_API_KEY:
@@ -58,13 +66,62 @@ SEARCH_QUERIES = {
     ],
 }
 
+# JSON Schema for structured extraction — guarantees flat numeric output
+EXTRACTION_SCHEMA = {
+    "name": "trial_metrics",
+    "strict": True,
+    "schema": {
+        "type": "object",
+        "properties": {
+            "hazard_ratio": {
+                "type": "number",
+                "description": "Hazard ratio for primary endpoint (e.g. 0.63)",
+            },
+            "toxicity_experimental": {
+                "type": "number",
+                "description": "Percentage of Grade 3/4 AEs in experimental arm (e.g. 15.0)",
+            },
+            "toxicity_control": {
+                "type": "number",
+                "description": "Percentage of Grade 3/4 AEs in control arm (e.g. 13.5)",
+            },
+            "bonus_tail": {
+                "type": "number",
+                "description": "Tail of the Curve bonus points (0-20)",
+            },
+            "bonus_palliation": {
+                "type": "number",
+                "description": "Palliation bonus points (0-10)",
+            },
+            "bonus_tfi": {
+                "type": "number",
+                "description": "Treatment-Free Interval bonus points (0-10)",
+            },
+            "bonus_qol": {
+                "type": "number",
+                "description": "Health-related QoL bonus points (0-10)",
+            },
+            "cost_estimate": {
+                "type": "string",
+                "description": "Drug cost estimate in USD (e.g. '$8,495 per month')",
+            },
+        },
+        "required": [
+            "hazard_ratio", "toxicity_experimental", "toxicity_control",
+            "bonus_tail", "bonus_palliation", "bonus_tfi", "bonus_qol",
+            "cost_estimate",
+        ],
+        "additionalProperties": False,
+    },
+}
+
 
 # ---------------------------------------------------------------------------
 # Agent 1: Trial Discovery — ClinicalTrials.gov API v2
 # ---------------------------------------------------------------------------
 class TrialDiscoveryAgent:
     """Discovers NCT IDs using the ClinicalTrials.gov API v2 (REST, JSON).
-    
+
     The v1 API (classic.clinicaltrials.gov/api/query/...) was retired June 2024.
     v2 endpoint: https://clinicaltrials.gov/api/v2/studies
     """
@@ -77,10 +134,7 @@ class TrialDiscoveryAgent:
             try:
                 resp = requests.get(
                     self.BASE_URL,
-                    params={
-                        "query.titles": query_text,
-                        "pageSize": 1,
-                    },
+                    params={"query.titles": query_text, "pageSize": 1},
                 )
                 if resp.status_code != 200:
                     logger.error(f"CT.gov v2 returned {resp.status_code}")
@@ -111,13 +165,9 @@ class TrialDiscoveryAgent:
             try:
                 resp = requests.get(
                     self.BASE_URL,
-                    params={
-                        "query.term": q,
-                        "pageSize": max_results,
-                    },
+                    params={"query.term": q, "pageSize": max_results},
                 )
                 if resp.status_code != 200:
-                    logger.error(f"CT.gov v2 keyword search returned {resp.status_code} for '{q}'")
                     continue
                 data = resp.json()
                 for study in data.get("studies", []):
@@ -130,7 +180,6 @@ class TrialDiscoveryAgent:
                         ids.append(nct)
             except Exception as e:
                 logger.error(f"Error in keyword search for '{q}': {e}")
-                continue
         unique_ids = list(dict.fromkeys(ids))
         logger.info(f"Found {len(unique_ids)} NCT IDs: {unique_ids}")
         return unique_ids
@@ -192,7 +241,6 @@ class ClinicalTrialsDetailsAgent:
     """Retrieves full study record from ClinicalTrials.gov API v2."""
 
     def fetch_full_study(self, nct_id: str) -> str:
-        """Fetch a single study by NCT ID using the v2 single-study endpoint."""
         logger.info(f"ClinicalTrialsDetailsAgent: fetching {nct_id}")
         url = f"https://clinicaltrials.gov/api/v2/studies/{nct_id}"
         try:
@@ -210,118 +258,104 @@ class ClinicalTrialsDetailsAgent:
 
 
 # ---------------------------------------------------------------------------
-# Agent 4: Extraction — LLM structured JSON (GPT-4.1-mini via OpenRouter)
+# Agent 4: Extraction — LLM with JSON Schema structured output
 # ---------------------------------------------------------------------------
 class ExtractionAgent:
-    """Uses LLM to extract structured metrics from unstructured text."""
+    """Uses LLM to extract structured metrics from unstructured text.
+
+    Uses json_schema response_format for guaranteed schema compliance.
+    Falls back to json_object mode + manual parsing if schema mode fails.
+    """
 
     def __init__(self, llm: LLMClient):
         self.llm = llm
 
-    @staticmethod
-    def _resolve_value(val, default=0.0):
-        """Extract a numeric value from LLM output (handles nested dicts, strings)."""
-        if val is None:
-            return default
-        if isinstance(val, (int, float)):
-            return float(val)
-        if isinstance(val, dict):
-            inner = val.get("value", val.get("score", default))
-            return ExtractionAgent._resolve_value(inner, default)
-        if isinstance(val, str):
-            try:
-                return float(val)
-            except ValueError:
-                m = re.search(r"[\d.]+", val.replace(",", ""))
-                if m:
-                    try:
-                        return float(m.group(0))
-                    except ValueError:
-                        pass
-        return default
-
-    @staticmethod
-    def _resolve_cost(val):
-        """Extract cost as a string from LLM output."""
-        if val is None:
-            return "N/A"
-        if isinstance(val, dict):
-            return str(val.get("value", val.get("cost", "N/A")))
-        return str(val)
-
     def extract_metrics(self, text: str) -> Dict[str, Any]:
-        logger.info("ExtractionAgent: extracting metrics via LLM")
+        logger.info("ExtractionAgent: extracting metrics via LLM (json_schema mode)")
         prompt = (
-            "Extract the following metrics from the abstract/text below. "
-            "Return a single flat JSON object with ONLY numeric values (no nested objects, no justification fields).\n\n"
-            "Required keys and value types:\n"
-            '- "hazard_ratio": number (e.g. 0.63)\n'
-            '- "toxicity_experimental": number (% grade 3/4 AEs for experimental arm, e.g. 15.0)\n'
-            '- "toxicity_control": number (% grade 3/4 AEs for control arm, e.g. 13.5)\n'
-            '- "bonus_tail": number (0-20, Tail of the Curve bonus points)\n'
-            '- "bonus_palliation": number (0-10)\n'
-            '- "bonus_tfi": number (0-10, Treatment-Free Interval)\n'
-            '- "bonus_qol": number (0-10, Health-related QoL)\n'
-            '- "cost_estimate": string (e.g. "$8,000 per month")\n\n'
+            "Extract clinical trial metrics from the text below.\n\n"
             "Guidelines:\n"
             "- Extract actual values from the text when available.\n"
             "- If a value cannot be found, estimate based on drug class and setting.\n"
-            "- For bonus points: only award if text provides evidence. Default to 0 if unclear.\n"
-            "- For cost_estimate: estimate based on drug class and US pricing.\n\n"
-            "IMPORTANT: Return ONLY a flat JSON object. Every value except cost_estimate must be a number.\n"
-            f'Example: {{"hazard_ratio": 0.63, "toxicity_experimental": 15.0, "toxicity_control": 13.5, '
-            f'"bonus_tail": 16, "bonus_palliation": 10, "bonus_tfi": 0, "bonus_qol": 10, '
-            f'"cost_estimate": "$8,495 per month"}}\n\n'
-            f"Text:\n{text[:4000]}"
+            "- For bonus points: only award if text provides evidence. Default to 0.\n"
+            "- For cost_estimate: estimate based on drug class and US pricing.\n"
+            "- hazard_ratio must be between 0 and 2.\n"
+            "- toxicity values are percentages (0-100).\n\n"
+            f"Text:\n{text[:6000]}"
         )
         try:
-            resp = self.llm.generate(prompt, expect_json=True)
+            resp = self.llm.generate(prompt, json_schema=EXTRACTION_SCHEMA)
             logger.debug("ExtractionAgent raw response: %s", resp[:500])
         except DailyRateLimitError as e:
             logger.error("LLM daily rate limit: %s", e)
             raise RuntimeError("LLMRateLimitExceeded")
 
-        # Parse JSON
-        if isinstance(resp, dict):
-            parsed = resp
-        else:
-            try:
-                parsed = json.loads(resp)
-            except json.JSONDecodeError:
-                logger.error("Failed to parse JSON: %s", resp[:300])
-                raise RuntimeError("ExtractionAgentParsingFailed")
+        # Parse JSON response
+        try:
+            metrics = json.loads(resp) if isinstance(resp, str) else resp
+        except json.JSONDecodeError:
+            logger.warning("json_schema parse failed, trying json_object fallback")
+            metrics = self._fallback_extract(text)
 
-        # Normalize values
-        normalized = {}
-        for key in [
-            "hazard_ratio", "toxicity_experimental", "toxicity_control",
-            "bonus_tail", "bonus_palliation", "bonus_tfi", "bonus_qol",
-        ]:
-            default = 1.0 if key == "hazard_ratio" else 0.0
-            normalized[key] = self._resolve_value(parsed.get(key), default)
-        normalized["cost_estimate"] = self._resolve_cost(parsed.get("cost_estimate"))
+        # Validate and clamp values
+        hr = float(metrics.get("hazard_ratio", 1.0))
+        if not (0 < hr < 2):
+            hr = self._regex_fallback_hr(text, hr)
+        metrics["hazard_ratio"] = hr
 
-        logger.info("Normalized metrics: %s", normalized)
+        logger.info("Extracted metrics: %s", metrics)
+        return metrics
 
-        # Regex fallback for hazard_ratio
-        if normalized["hazard_ratio"] == 1.0:
-            patterns = [
-                r"hazard ratio\s*[:=]\s*([0-9]+\.?[0-9]*)",
-                r"\bHR\s*=?\s*([0-9]+\.?[0-9]*)",
-                r"Hazard ratio[^0-9]*([0-9]+\.?[0-9]*)",
-            ]
-            for pat in patterns:
-                m = re.search(pat, text, re.IGNORECASE)
-                if m:
-                    try:
-                        hr_val = float(m.group(1))
-                        if 0 < hr_val < 2:
-                            normalized["hazard_ratio"] = hr_val
-                            break
-                    except ValueError:
-                        continue
+    def _fallback_extract(self, text: str) -> Dict[str, Any]:
+        """Fallback: use json_object mode with manual parsing."""
+        prompt = (
+            "Extract these metrics as a flat JSON object with numeric values:\n"
+            "hazard_ratio, toxicity_experimental, toxicity_control, "
+            "bonus_tail, bonus_palliation, bonus_tfi, bonus_qol, cost_estimate\n\n"
+            f"Text:\n{text[:4000]}"
+        )
+        resp = self.llm.generate(prompt, expect_json=True)
+        try:
+            parsed = json.loads(resp) if isinstance(resp, str) else resp
+        except json.JSONDecodeError:
+            logger.error("Fallback JSON parse also failed")
+            parsed = {}
 
-        return normalized
+        # Ensure all keys exist with defaults
+        defaults = {
+            "hazard_ratio": 1.0, "toxicity_experimental": 0.0,
+            "toxicity_control": 0.0, "bonus_tail": 0.0,
+            "bonus_palliation": 0.0, "bonus_tfi": 0.0,
+            "bonus_qol": 0.0, "cost_estimate": "N/A",
+        }
+        for k, v in defaults.items():
+            if k not in parsed:
+                parsed[k] = v
+            elif k != "cost_estimate":
+                # Ensure numeric
+                try:
+                    parsed[k] = float(parsed[k])
+                except (ValueError, TypeError):
+                    parsed[k] = v
+        return parsed
+
+    @staticmethod
+    def _regex_fallback_hr(text: str, current: float) -> float:
+        """Try to extract HR from text via regex if LLM value is invalid."""
+        patterns = [
+            r"hazard ratio\s*[:=]\s*([0-9]+\.?[0-9]*)",
+            r"\bHR\s*=?\s*([0-9]+\.?[0-9]*)",
+        ]
+        for pat in patterns:
+            m = re.search(pat, text, re.IGNORECASE)
+            if m:
+                try:
+                    val = float(m.group(1))
+                    if 0 < val < 2:
+                        return val
+                except ValueError:
+                    continue
+        return current if 0 < current < 2 else 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -329,18 +363,18 @@ class ExtractionAgent:
 # ---------------------------------------------------------------------------
 class CalculationAgent:
     """Deterministic ASCO Value Framework calculations.
-    
-    CBS = (1 - HR) * 100
-    Toxicity = ((tox_exp / tox_ctrl) - 1) * -20  (capped at -20)
+
+    CBS = (1 - HR) × 100
+    Toxicity = ((tox_exp / tox_ctrl) - 1) × -20  (capped at -20)
     NHB = CBS + Toxicity + Total Bonus
     """
 
     def calculate_scores(self, metrics: Dict[str, Any]) -> Dict[str, float]:
-        hr = float(metrics.get("hazard_ratio") or 1.0)
+        hr = float(metrics.get("hazard_ratio", 1.0))
         cb_score = (1 - hr) * 100
 
-        tox_exp = float(metrics.get("toxicity_experimental") or 0)
-        tox_ctrl = float(metrics.get("toxicity_control") or 0)
+        tox_exp = float(metrics.get("toxicity_experimental", 0))
+        tox_ctrl = float(metrics.get("toxicity_control", 0))
 
         if tox_ctrl > 0 and tox_exp > 0:
             tox_score = ((tox_exp / tox_ctrl) - 1) * -20
@@ -349,7 +383,7 @@ class CalculationAgent:
             tox_score = 0.0
 
         bonus = sum(
-            float(metrics.get(k) or 0)
+            float(metrics.get(k, 0))
             for k in ["bonus_tail", "bonus_palliation", "bonus_tfi", "bonus_qol"]
         )
 
@@ -366,7 +400,7 @@ class CalculationAgent:
 # Agent 6: Formatting
 # ---------------------------------------------------------------------------
 class FormattingAgent:
-    """Formats scorecard as markdown table."""
+    """Formats scorecard as markdown table and CSV."""
 
     def format_scorecard(self, title: str, scores: Dict[str, float], metrics: Dict[str, Any]) -> str:
         tail = metrics.get("bonus_tail", 0)
@@ -382,19 +416,49 @@ class FormattingAgent:
 
         md = [
             f"### {title}",
-            "| Measure                  | Result/Score                                                           |",
-            "|--------------------------|------------------------------------------------------------------------|",
+            "| Measure | Result/Score |",
+            "|---------|-------------|",
             f"| **Clinical Benefit Score** | HR = {hr} → (1 - {hr}) × 100 = **{scores['clinical_benefit']:.1f}** |",
-            f"| **Toxicity Score**        | {tox_exp} / {tox_ctrl} − 1 = {raw_ratio:.2f} → {raw_ratio:.2f} × -20 = **{scores['toxicity_score']:.1f}** |",
-            f"| **Bonus Points**          | Tail of the Curve: {tail}  |",
-            f"|                          | Palliation: {palliation}  |",
-            f"|                          | Treatment-Free Interval: {tfi}  |",
-            f"|                          | Health-related QoL: {qol}  |",
-            f"| **Total Bonus Points**    | **{scores['total_bonus']:.1f}**                                        |",
-            f"| **Net Health Benefit**    | **{scores['net_health_benefit']:.1f}**                                 |",
-            f"| **Cost**                  | **{cost}**                                                           |",
+            f"| **Toxicity Score** | {tox_exp}% / {tox_ctrl}% − 1 = {raw_ratio:.2f} → {raw_ratio:.2f} × -20 = **{scores['toxicity_score']:.1f}** |",
+            f"| **Bonus Points** | Tail: {tail}, Palliation: {palliation}, TFI: {tfi}, QoL: {qol} |",
+            f"| **Total Bonus Points** | **{scores['total_bonus']:.1f}** |",
+            f"| **Net Health Benefit** | {scores['clinical_benefit']:.1f} + ({scores['toxicity_score']:.1f}) + {scores['total_bonus']:.1f} = **{scores['net_health_benefit']:.1f}** |",
+            f"| **Cost** | **{cost}** |",
         ]
         return "\n".join(md)
+
+
+def _save_markdown_as_csv(md_table: str, csv_filename: str):
+    """Parse markdown table and save as CSV."""
+    lines = md_table.splitlines()
+    table_rows = []
+    for line in lines:
+        if not (line.strip().startswith("|") and line.strip().endswith("|")):
+            continue
+        stripped = line.replace("|", "").replace("-", "").replace(":", "").strip()
+        if not stripped:
+            continue
+        cols = [c.strip() for c in line.strip().split("|")[1:-1]]
+        if len(cols) < 2:
+            continue
+        desc = cols[1].replace("**", "").strip()
+        value = ""
+        if "cost" in cols[0].lower():
+            m = re.search(r"(\$[\d,]+(?:\.\d{1,2})?)", desc)
+            value = m.group(1) if m else ""
+        else:
+            nums = re.findall(r"(-?\d+\.?\d*)", desc)
+            if nums:
+                value = nums[-1]
+        measure = cols[0].replace("**", "").strip()
+        table_rows.append([measure, desc, value])
+
+    if table_rows and table_rows[0][0].lower() != "measure":
+        table_rows.insert(0, ["Measure", "Description/Formula", "Final Value"])
+    if table_rows and len(table_rows) > 1:
+        with open(csv_filename, "w", newline="", encoding="utf-8") as f:
+            csv.writer(f).writerows(table_rows)
+        logger.info(f"CSV saved: {csv_filename}")
 
 
 # ---------------------------------------------------------------------------
@@ -404,7 +468,6 @@ class MultiAgentScorecardGenerator:
     def __init__(self):
         self.discovery = TrialDiscoveryAgent()
         self.pubmed = PubMedAgent()
-        # Use EXTRACTION_MODEL for structured JSON extraction
         self.llm = LLMClient(model=config.EXTRACTION_MODEL)
         self.extractor = ExtractionAgent(self.llm)
         self.calculator = CalculationAgent()
@@ -416,14 +479,14 @@ class MultiAgentScorecardGenerator:
         queries = SEARCH_QUERIES.get(title, [])
         text = ""
 
-        # Agent 1: Trial discovery via keyword queries
+        # Agent 1: Trial discovery
         nct_ids = self.discovery.fetch_nct_ids_by_keywords(queries)
         if not nct_ids:
             fallback_nct = self.discovery.find_nct_id(title)
             if fallback_nct:
                 nct_ids = [fallback_nct]
 
-        # Agent 3: Fetch full study details
+        # Agent 3: Full study details
         details_texts = []
         for nct in nct_ids:
             dt = self.details.fetch_full_study(nct)
@@ -432,14 +495,14 @@ class MultiAgentScorecardGenerator:
         if details_texts:
             text = "\n".join(details_texts)
 
-        # Agent 2: PubMed keyword abstracts
+        # Agent 2: PubMed abstracts
         corpus = self.pubmed.fetch_by_keywords(queries, max_results=5)
         if corpus:
             text = (text + "\n" + corpus) if text else corpus
 
         logger.info(f"Combined corpus: {len(text)} chars")
 
-        # Agent 4: LLM extraction
+        # Agent 4: LLM extraction (1 call, json_schema mode)
         metrics = self.extractor.extract_metrics(text)
 
         # Agent 5: Deterministic calculation
@@ -455,9 +518,8 @@ class MultiAgentScorecardGenerator:
 
         for t in titles:
             md_table = self.process_trial(t)
-            report += md_table + "\n---\n"
+            report += md_table + "\n\n---\n\n"
 
-            # CSV export
             safe_title = re.sub(r'[\\/*?:"<>|]', "", t).replace(" ", "_")[:100]
             csv_filename = os.path.join(csv_dir, f"multi_agentic_scorecard_{safe_title}.csv")
             _save_markdown_as_csv(md_table, csv_filename)
@@ -465,62 +527,24 @@ class MultiAgentScorecardGenerator:
         return report
 
 
-def _save_markdown_as_csv(md_table: str, csv_filename: str):
-    """Parse markdown table and save as CSV."""
-    lines = md_table.splitlines()
-    table_rows = []
-    for line in lines:
-        if line.strip().startswith("|") and line.strip().endswith("|"):
-            if set(line.replace("|", "").replace("-", "").strip()) == set():
-                continue
-            cols = [c.replace("<br>", "; ").replace("\n", " ").strip() for c in line.strip().split("|")[1:-1]]
-            desc = cols[1].replace("**", "").strip() if len(cols) > 1 else ""
-            value = ""
-            if "cost" in cols[0].lower():
-                m = re.search(r"(\$[\d,]+(?:\.\d{1,2})?)", desc)
-                if m:
-                    value = m.group(1)
-                else:
-                    m2 = re.findall(r"(\$?[\d,]+(?:\.\d{1,2})?)", desc)
-                    if m2:
-                        value = m2[-1]
-            else:
-                m = re.findall(r"(-?\d+\.?\d*)", desc)
-                if m:
-                    value = m[-1]
-            measure = cols[0].replace("**", "").strip()
-            table_rows.append([measure, desc, value])
-
-    if table_rows and table_rows[0][0].lower() != "measure":
-        table_rows.insert(0, ["Measure", "Description/Formula", "Final Value"])
-    if table_rows and len(table_rows) > 1:
-        with open(csv_filename, "w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            writer.writerows(table_rows)
-        logger.info(f"CSV saved: {csv_filename}")
-
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
 def main():
-    targets = [
-        "Enzalutamide Versus Placebo After Chemotherapy in Metastatic Adenocarcinoma of Prostate",
-        "Doxorubicin + Cyclophosphamide → Paclitaxel + Trastuzumab vs Doxorubicin + Cyclophosphamide + Paclitaxel in Adjuvant HER2+ Breast Cancer",
-        "Ipilimumab Versus Placebo After Primary Treatment of Stage III Melanoma",
-        "Ibrutinib Versus Chlorambucil As Initial Therapy for Chronic Lymphocytic Leukemia",
-    ]
+    print("=" * 60)
+    print("  Multi-Agentic Scorecard Generation")
+    print(f"  Extraction model: {config.EXTRACTION_MODEL}")
+    print("=" * 60)
+
     gen = MultiAgentScorecardGenerator()
     try:
-        md = gen.generate_all(targets)
+        md = gen.generate_all(TRIAL_NAMES)
     except RuntimeError as e:
         logger.error("Pipeline halted: %s", e)
         return
+
     out = os.path.join(os.path.dirname(__file__), "..", "results", "multi_agentic", "multi_agentic_scorecard_results.md")
     os.makedirs(os.path.dirname(out), exist_ok=True)
     with open(out, "w", encoding="utf-8") as f:
         f.write(md)
-    logger.info(f"Results written to {out}")
+    print(f"\nResults written to: {out}")
 
 
 if __name__ == "__main__":
