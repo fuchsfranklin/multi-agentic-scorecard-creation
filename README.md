@@ -1,6 +1,6 @@
 # LLM-Powered Oncology Scorecard Replication
 
-This project grew out of conversations with my former Pfizer colleagues [Brett South](https://www.linkedin.com/in/brett-south-phd-famia-50242349), [Jay Ronquillo](https://www.linkedin.com/in/geronimoronquillo), [Jon Mauer](https://www.linkedin.com/in/jonathan-mauer) and [Stephen Watt](https://scholar.google.com/citations?user=LXkHB_8AAAAJ&hl=en), aiming to to see if LLMs could reproduce established oncology value frameworks (ISPOR Scorecard, ASCO Value Framework) and how close they would get to human-derived scores.
+Based on some great discussions with my previous Pfizer colleagues [Brett South](https://www.linkedin.com/in/brett-south-phd-famia-50242349), [Ajit Jadhav](https://www.linkedin.com/in/ajit-jadhav-pfizer), [Jay Ronquillo](https://www.linkedin.com/in/geronimoronquillo), [Jon Mauer](https://www.linkedin.com/in/jonathan-mauer), and [Stephen Watt](https://scholar.google.com/citations?user=LXkHB_8AAAAJ&hl=en), this project aims to replicate established oncology value frameworks, such as the ISPOR Scorecard and ASCO Value Framework, using Large Language Models (LLMs) to validate their capabilities in reproducing human-derived scorecards.
 
 ## What it does
 
@@ -47,19 +47,19 @@ These are the published reference values we're trying to match.
 
 | Measure | Result/Score |
 |---------|-------------|
-| Clinical Benefit Score | HR (death) = 0.63 → (1 − 0.63) × 100 = **37** |
-| Toxicity Score | 15/13.5 − 1 = 0.11 → 0.11 × −20 = **−2.2** |
+| Clinical Benefit Score | HR (death) = 0.63 -> (1 - 0.63) x 100 = **37** |
+| Toxicity Score | 15/13.5 - 1 = 0.11 -> 0.11 x -20 = **-2.2** |
 | Bonus Points | Tail of Curve: 16, Palliation: 10, QoL: 10 |
 | Total Bonus | **36** |
-| Net Health Benefit | 37 − 2.2 + 36 = **70.8** |
+| Net Health Benefit | 37 - 2.2 + 36 = **70.8** |
 | Cost (Per Month) | **$8,495** |
 
 ### AC-TH vs AC-T, adjuvant HER2+ breast cancer
 
 | Measure | Result/Score |
 |---------|-------------|
-| Clinical Benefit Score | HR (death) = 0.59 → (1 − 0.59) × 100 = **41** |
-| Toxicity Score | No difference → **0** |
+| Clinical Benefit Score | HR (death) = 0.59 -> (1 - 0.59) x 100 = **41** |
+| Toxicity Score | No difference -> **0** |
 | Total Bonus | **0** |
 | Net Health Benefit | 41 + 0 + 0 = **41** |
 | Cost (Total Course) | **$73,166** |
@@ -68,43 +68,40 @@ These are the published reference values we're trying to match.
 
 | Measure | Result/Score |
 |---------|-------------|
-| Clinical Benefit Score | HR (DFS) = 0.75 → (1 − 0.75) × 100 = **25** |
-| Toxicity Score | 38.5/28 − 1 = 0.38 → 0.38 × −20 = **−7.6** |
+| Clinical Benefit Score | HR (DFS) = 0.75 -> (1 - 0.75) x 100 = **25** |
+| Toxicity Score | 38.5/28 - 1 = 0.38 -> 0.38 x -20 = **-7.6** |
 | Total Bonus | **0** |
-| Net Health Benefit | 25 − 7.6 = **17.4** |
+| Net Health Benefit | 25 - 7.6 = **17.4** |
 | Cost (Total Course) | **$458,858** |
 
 ### Ibrutinib vs Chlorambucil, CLL
 
 | Measure | Result/Score |
 |---------|-------------|
-| Clinical Benefit Score | HR (death) = 0.16 → (1 − 0.16) × 100 = **84** |
-| Toxicity Score | 27.5/20.5 − 1 = 0.34 → 0.34 × −20 = **−6.8** |
+| Clinical Benefit Score | HR (death) = 0.16 -> (1 - 0.16) x 100 = **84** |
+| Toxicity Score | 27.5/20.5 - 1 = 0.34 -> 0.34 x -20 = **-6.8** |
 | Total Bonus | **0** |
-| Net Health Benefit | 84 − 6.8 = **77.2** |
+| Net Health Benefit | 84 - 6.8 = **77.2** |
 | Cost (Per 4 Months) | **$35,770** |
 
-## Results (Feb 21, 2026 run)
+## Results (Feb 21, 2026 run -- v2.3 baseline)
 
 Full pipeline ran on a remote machine: 7 attempts, 1 clean run (82.9 seconds, all 4 steps passed). Earlier attempts hit Python 3.8 compatibility issues (`type | None` syntax, f-string backslashes) and a pydantic import error in the RAG pipeline. Those were fixed across runs 1-6; run 7 was the first fully clean execution.
 
-One thing to note: the remote machine's `.env` had `EXTRACTION_MODEL=openai/gpt-4.1-mini` instead of the `gpt-5.1-mini` default in `config.py`. So the multi-agentic extraction actually ran on the legacy model. This is worth re-running with `gpt-5.1-mini` to see if extraction quality improves.
+A follow-up run (23:22 UTC) attempted to re-run but hit 401 Unauthorized errors on OpenRouter, so the results below are from the successful run 7 (22:14 UTC). The evaluation re-ran against the existing result files and confirmed the same scores.
+
+Caveats for this run:
+- The remote machine's `.env` had `EXTRACTION_MODEL=openai/gpt-4.1-mini` instead of the `gpt-5.1-mini` default in `config.py`. Multi-agentic extraction ran on the legacy model.
+- `tantivy` was not installed, so RAG hybrid search fell back to vector-only (no BM25 keyword matching).
+- The v2.4 prompt improvements (few-shot examples, strict bonus rules, corpus pre-filtering) were coded after this run and have not yet been validated.
 
 Measured against gold standard NHB values. Full per-trial breakdown in `results/evaluation_report.md`.
 
-| Approach | Accuracy (100−MAPE) | MAPE | Pearson r | Trials |
+| Approach | Accuracy (100-MAPE) | MAPE | Pearson r | Trials |
 |----------|--------------------:|-----:|----------:|-------:|
 | Single LLM | 67.1% | 32.9% | 0.856 | 4 |
-| Multi-Agentic | 34.0% | 66.0% | −0.274 | 4 |
+| Multi-Agentic | 34.0% | 66.0% | -0.274 | 4 |
 | RAG-LLM | 51.6% | 48.4% | 0.808 | 4 |
-
-### What the numbers tell us
-
-Single LLM came out on top. Gemini 3 Flash nailed the hazard ratios for all four trials (3 out of 4 CBS values matched the gold standard exactly), but overestimated bonus points across the board. The model "wants" to award tail-of-curve, palliation, and QoL bonuses even when the gold standard gives zero. That's the main error source: bonus inflation pushed Ibrutinib to 111.8 (gold: 77.2) and pulled Enzalutamide down to 53.9 (gold: 70.8, because it under-awarded tail-of-curve at 0 vs 16).
-
-Multi-agentic had the worst accuracy, and the root cause is clear from the logs. The Enzalutamide trial extracted `HR = 1.0` and all-zero toxicity/bonus values, producing NHB = 0.0 against a gold standard of 70.8. That's a 100% error on one trial, which tanks the average. The extraction agent pulled 9 NCT IDs and 861K chars of corpus text, but none of them were the original AFFIRM trial (NCT00974311 was fetched but the LLM couldn't find the right HR in 246K chars of text). For Ibrutinib, it extracted HR = 0.63 instead of 0.16, which is the HR for a different trial entirely. The structured extraction is finding trials but not the right data points within them. Zero bonus points across all four trials is another systematic miss.
-
-RAG-LLM landed in the middle. It matched the single LLM on hazard ratios (CBS correct for 3/4 trials) but had the same bonus inflation problem, plus a worse toxicity estimate for ipilimumab (−36.0 vs gold −7.6). The hybrid search fell back to pure vector search every time because `tantivy` wasn't installed on the remote machine, so BM25 keyword matching never kicked in. That likely hurt retrieval quality for specific numeric values.
 
 ### Per-trial NHB comparison
 
@@ -115,36 +112,76 @@ RAG-LLM landed in the middle. It matched the single LLM on hazard ratios (CBS co
 | Ipilimumab (Melanoma) | 17.4 | 11.8 | 34.0 | 9.0 |
 | Ibrutinib (CLL) | 77.2 | 111.8 | 42.0 | 121.8 |
 
+### Per-trial component breakdown
+
+| Trial | GS CBS | SL CBS | MA CBS | RAG CBS | GS Tox | SL Tox | MA Tox | RAG Tox | GS Bonus | SL Bonus | MA Bonus | RAG Bonus |
+|-------|:------:|:------:|:------:|:-------:|:------:|:------:|:------:|:-------:|:--------:|:--------:|:--------:|:---------:|
+| Enzalutamide | 37 | 37 | 0 | 37 | -2.2 | -3.1 | 0.0 | -3.7 | 36 | 20 | 0 | 20 |
+| AC-TH | 41 | 37 | 37 | 52 | 0.0 | -3.3 | -5.5 | -5.2 | 0 | 20 | 0 | 20 |
+| Ipilimumab | 25 | 25 | 34 | 25 | -7.6 | -23.2 | 0.0 | -36.0 | 0 | 10 | 0 | 20 |
+| Ibrutinib | 84 | 84 | 37 | 84 | -6.8 | -2.2 | +5.0 | -2.2 | 0 | 30 | 0 | 40 |
+
+### What the numbers tell us
+
+**Single LLM (67.1% accuracy, r = 0.856)** -- best performer. Gemini 3 Flash nailed the hazard ratios: CBS matched the gold standard exactly for 3 out of 4 trials (Enzalutamide 37, Ipilimumab 25, Ibrutinib 84). The one miss was AC-TH where it used HR = 0.63 instead of 0.59 (CBS 37 vs gold 41). The main error source is bonus inflation -- the model awarded 10-30 bonus points to every trial, while the gold standard gives 0 for 3 out of 4. Ibrutinib was the worst case: 30 bonus points pushed NHB to 111.8 vs gold 77.2. Enzalutamide went the other direction: the model under-awarded tail-of-curve (0 vs gold 16) and palliation (10 vs gold 10), giving only 20 bonus vs gold 36, pulling NHB down to 53.9 vs gold 70.8. Toxicity estimates were reasonable but consistently off -- the model guesses at AE rates rather than extracting them from trial data.
+
+**Multi-Agentic (34.0% accuracy, r = -0.274)** -- worst performer, with clear root causes:
+- Enzalutamide: extracted `HR = 1.0` and all-zero values, producing NHB = 0.0 vs gold 70.8 (100% error). The agent fetched 9 NCT IDs totaling 861K chars of corpus text. NCT00974311 (the AFFIRM trial) was in there, but GPT-4.1-mini couldn't locate the HR in 246K chars of study text. The v2.4 corpus pre-filtering (best-match study selection, 15K char window) should fix this.
+- AC-TH: extracted HR = 0.63 (gold: 0.59), CBS = 37 (gold: 41). Close but wrong trial's HR.
+- Ipilimumab: extracted HR = 0.66 (gold: 0.75), CBS = 34 (gold: 25). Pulled the wrong HR, and toxicity_control = 0% is clearly wrong (gold: 28% Grade 3-4 AEs in placebo arm).
+- Ibrutinib: extracted HR = 0.63 (gold: 0.16), CBS = 37 (gold: 84). This is the HR for a completely different trial -- likely cross-contamination from the Enzalutamide extraction. The toxicity calculation produced a positive score (+5.0) because it had experimental < control, which is mathematically correct but the rates (15%/20%) don't match the gold standard (27.5%/20.5%).
+- Zero bonus points across all 4 trials is a systematic miss, but at least it avoids the hallucination problem the other approaches have.
+
+**RAG-LLM (51.6% accuracy, r = 0.808)** -- middle ground. CBS matched gold for 3/4 trials (Enzalutamide 37, Ipilimumab 25, Ibrutinib 84), same as single LLM. The miss was AC-TH where it used HR = 0.48 instead of 0.59, producing CBS = 52 (gold: 41) -- it overshot by pulling a more favorable HR from the retrieved abstracts. The worst single error was Ipilimumab toxicity: -36.0 vs gold -7.6, because the model estimated 42%/15% Grade 3-4 AEs (gold: 38.5%/28%). The 42% experimental rate is close, but the 15% control rate is way too low -- the model likely confused "placebo" with "no toxicity." Bonus inflation was the worst of all three approaches: 20-40 points per trial vs gold 0 for 3/4 trials. Hybrid search fell back to vector-only every time (`tantivy` not installed), which likely hurt retrieval of specific numeric values like AE rates.
+
 ### Where the errors come from
 
 The biggest error sources, in order:
-1. Bonus point hallucination. All three LLM approaches over-award bonus points. The gold standard gives 0 bonus for 3 out of 4 trials (only Enzalutamide gets 36 points). Single LLM awarded bonuses to all 4 trials. RAG-LLM awarded 20-40 bonus points to every trial. The models treat bonus categories as "likely applicable" rather than checking whether the specific trial data supports them.
-2. Multi-agentic extraction failures. The extraction agent can't reliably find the right numeric values in large corpus text. It defaults to safe values (HR=1.0, tox=0%) when uncertain, which produces garbage scores.
-3. Toxicity estimation variance. Toxicity scores swing widely because the models guess at Grade 3-4 AE rates rather than extracting them from specific tables. Ipilimumab toxicity ranged from −7.6 (gold) to −23.2 (single LLM) to −36.0 (RAG-LLM) to 0.0 (multi-agentic).
+
+1. **Bonus point hallucination.** All LLM approaches over-award bonus points. The gold standard gives 0 bonus for 3 out of 4 trials (only Enzalutamide gets 36). Single LLM awarded 10-30 to all 4. RAG-LLM awarded 20-40 to all 4. Multi-agentic gave 0 across the board (wrong for Enzalutamide, but accidentally correct for the other 3). The models treat bonus categories as "likely applicable" rather than requiring specific trial evidence. This is the #1 target for v2.4 prompt improvements.
+
+2. **Multi-agentic extraction failures.** GPT-4.1-mini can't reliably find the right numeric values in large corpus text (246K-861K chars). It defaults to safe values (HR=1.0, tox=0%) when uncertain, or pulls the wrong trial's HR. The v2.4 corpus pre-filtering and validation+retry logic should address this, but hasn't been tested yet.
+
+3. **Toxicity estimation variance.** Toxicity scores swing widely because the models guess at Grade 3-4 AE rates rather than extracting them from specific tables. Ipilimumab toxicity ranged from -7.6 (gold) to -23.2 (single LLM) to -36.0 (RAG-LLM) to 0.0 (multi-agentic). The ASCO formula amplifies small rate differences: a 10% swing in the experimental/control ratio translates to 2 points on the toxicity score.
+
+4. **HR cross-contamination in multi-agentic.** The extraction agent pulled HR = 0.63 for both AC-TH and Ibrutinib -- this is the Enzalutamide HR, suggesting the LLM is confusing trials within the corpus. Better corpus isolation per trial should help.
 
 ### Deep Outputs (MOA engine, separate pipeline)
 
-The MOA-DeepOutputs engine ran the same 4 trials through a different architecture. Its results are in `results/deep_outputs/` but use non-standard ASCO formulas (e.g., `(1 - HR) × 25` instead of `(1 - HR) × 100` for Enzalutamide, `(1 - HR) × 150% × 100` for breast cancer). The NHB values (9.75, 37.5, 37.5, 58.0) aren't directly comparable to the gold standard because the formula basis is different. This pipeline needs its own evaluation criteria.
+The MOA-DeepOutputs engine ran the same 4 trials through a different architecture. Its results are in `results/deep_outputs/` but use non-standard ASCO formulas and scoring scales:
+
+| Trial | Gold NHB | Deep Outputs NHB | Formula deviation |
+|-------|:--------:|:----------------:|-------------------|
+| Enzalutamide | 70.8 | 9.75 | Used `(1 - HR) x 25` instead of `x 100` |
+| AC-TH | 41.0 | 37.5 | Used `(1 - HR) x 150% x 100` |
+| Ipilimumab | 17.4 | 37.5 | Applied 85% DFS-to-OS weight factor |
+| Ibrutinib | 77.2 | 58.0 | Used HR = 0.54 (gold: 0.16), non-standard tox formula |
+
+These results aren't directly comparable to the gold standard because the formula basis is different. The engine invented its own scoring multipliers rather than following the Langdon et al. methodology. This pipeline needs either (a) its own evaluation criteria or (b) prompt updates to enforce the standard ASCO formulas.
 
 ## Next steps
 
-Things that should move the numbers on the next run:
-1. Fix bonus point prompts. Done (v2.4). All three approaches now include a gold standard
-   few-shot example and strict bonus rules: "default is 0, most trials get 0, only award
-   with specific trial evidence." The old prompts said things like "bonus points may apply"
-   which encouraged the model to award them.
-2. Install `tantivy` on the remote machine. Done: added to `requirements.txt`. This enables
-   BM25 keyword search in the RAG pipeline (was falling back to vector-only).
-3. Update the remote `.env` to use `gpt-5.1-mini` for extraction (currently stuck on `gpt-4.1-mini`).
-4. Reduce multi-agentic corpus size. Done (v2.4). The pipeline now pre-filters to the
-   best-matching NCT study by title similarity instead of dumping all 9 studies (861K chars)
-   into the extraction prompt. Context window increased from 6K to 15K chars.
-5. Add extraction validation. Done (v2.4). If the extraction returns HR=1.0 or both toxicity
-   values at 0, it retries with a focused prompt that explains what went wrong.
-6. Run with `--with-deepeval` to get LLM-as-judge scores alongside the deterministic metrics.
-7. Improve search queries. Done (v2.4). All three approaches now use trial-specific queries
-   referencing the landmark trial name (AFFIRM, NSABP B-31, EORTC 18071, RESONATE-2)
-   instead of generic drug class queries.
+### Completed (v2.4, pending validation run)
+1. **Few-shot calibration + strict bonus rules.** All three approaches now include a gold standard few-shot example (Enzalutamide from Langdon et al.) and explicit rules: "default is 0 for each category, most trials receive 0 total bonus points, only award if the specific trial data supports it."
+2. **Multi-agentic corpus pre-filtering.** Pipeline now scores each NCT study by title-keyword overlap and uses the best match as primary context (up to 30K chars), with others truncated to 3K each. Replaces the old approach of dumping all studies (up to 861K chars) into one prompt.
+3. **Extraction validation + retry.** If extracted HR = 1.0 or both toxicity values = 0, the agent retries with a focused prompt explaining what went wrong.
+4. **Trial-specific search queries.** All three approaches now reference landmark trial names (AFFIRM, NSABP B-31, EORTC 18071, RESONATE-2) instead of generic drug class terms.
+5. **`tantivy` added to requirements.txt.** Enables BM25 keyword search in RAG pipeline.
+
+### Still needed for next run
+1. **Update remote `.env`** to use `gpt-5.1-mini` for extraction (currently stuck on `gpt-4.1-mini`). The legacy model may be contributing to extraction failures.
+2. **Verify `tantivy` installs cleanly** on the remote machine. If it doesn't, the RAG pipeline will silently fall back to vector-only search again.
+3. **Run with `--with-deepeval`** to get LLM-as-judge scores (Scorecard Correctness, Clinical Reasoning, Framework Compliance) alongside the deterministic metrics.
+4. **Fix the `TeeWriter` `isatty` error** in the RAG pipeline. The latest run log shows `'TeeWriter' object has no attribute 'isatty'` -- this caused the embedding model to fail silently, meaning the RAG pipeline may have used stale embeddings from a previous run rather than fresh ones.
+5. **Fix the OpenRouter 401 error.** The follow-up run (23:22 UTC) hit auth failures on all LLM calls. The API key on the remote machine may have expired or been rotated. Check and update `.env`.
+
+### Future improvements
+1. **Toxicity grounding.** The biggest remaining accuracy gap after bonus points is toxicity estimation. Consider adding OpenFDA adverse event data as a structured input, or including specific AE rate tables in the prompt context.
+2. **Per-component few-shot examples.** The current few-shot shows one complete scorecard. Adding separate examples for toxicity calculation and bonus point adjudication could improve calibration on those specific components.
+3. **Ensemble approach.** Run all three approaches and take the median NHB as the final score. This would reduce the impact of outlier errors (e.g., multi-agentic's 0.0 for Enzalutamide).
+4. **Deep Outputs formula alignment.** Update the MOA engine prompts to enforce standard ASCO formulas so its results are directly comparable.
+5. **Expand trial coverage.** The current 4 trials are a small sample. Adding more trials from Langdon et al. or other ASCO framework publications would make the accuracy metrics more robust.
+6. **Cost data integration.** Cost estimates are currently LLM-hypothesized. Integrating OpenFDA drug pricing or CMS data would ground this component.
 
 ## Data sources
 

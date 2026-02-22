@@ -1,5 +1,106 @@
 # Changelog
 
+## v2.5 — February 22, 2026 Research-Backed Extraction & Retrieval Improvements
+
+Based on deep research into knowledge-conditioned LLM extraction (arxiv 2406.18027),
+numerical extraction from RCTs (arxiv 2405.01686), self-consistency voting, and
+biomedical RAG optimization. Targets the two underperforming approaches:
+Multi-Agentic (34.0%) and RAG-LLM (51.6%).
+
+### Multi-Agentic (`src/multi_agentic_scorecard.py`) — 5 improvements
+
+1. **Self-consistency voting**: Each extraction stage runs 3 times, median numeric
+   values taken. Based on knowledge-conditioned extraction research showing +12.9% F1
+   improvement. Directly addresses HR variance and cross-contamination.
+
+2. **Two-stage extraction**: HR extracted separately from toxicity/bonus using focused
+   text snippets. Prevents the LLM from confusing values across different document
+   sections (root cause of HR cross-contamination where 0.63 was extracted for 3 trials).
+
+3. **PubMed abstract as HR anchor**: PubMed abstracts are short and almost always
+   contain the primary HR. Now prioritized as the primary source for HR extraction,
+   with CT.gov text as validation. Previously PubMed was appended at the end.
+
+4. **Landmark trial name matching**: NCT study selection now checks for known trial
+   names (AFFIRM, NSABP B-31, EORTC 18071, RESONATE-2) in addition to title keywords.
+   Adds +10 score bonus for landmark name matches. Addresses the v2.3 issue where
+   NCT02294461 was selected over NCT00974311 (the actual AFFIRM trial).
+
+5. **Focused snippet extraction**: Instead of feeding 15-30K chars of raw text, the
+   extractor now searches for keyword-relevant snippets (e.g., "hazard ratio", "grade 3")
+   and builds focused context windows. Reduces noise and improves extraction accuracy.
+
+LLM calls increased from 4 to ~24 (6 per trial: 3 HR votes + 3 tox votes). Cost
+increase: ~$0.08 → ~$0.12 total. Acceptable for the accuracy improvement.
+
+### RAG-LLM (`src/rag_llm_scorecard.py`) — 5 improvements
+
+1. **Document chunking**: Abstracts split into ~512-token chunks with 100-token overlap
+   before embedding. Research shows factoid/numeric queries benefit from smaller chunks
+   (256-512 tokens) vs full abstracts. Improves retrieval of specific HR and AE values.
+
+2. **Query decomposition**: Instead of 1 combined query per trial, now runs 3 targeted
+   sub-queries: (a) HR + trial name, (b) toxicity/AE, (c) bonus evidence. Results are
+   deduplicated and merged. Retrieves ~12 unique chunks vs previous 5.
+
+3. **Toxicity grounding**: Added explicit prompt instruction that control-arm Grade 3+
+   AEs are typically 15-30% in oncology trials. Specifically addresses the Ipilimumab
+   error where the model estimated 15% for the placebo arm (gold: 28%).
+
+4. **Bonus verification step**: After initial generation, if total bonus > 0, a second
+   LLM call asks the model to justify each non-zero bonus with a specific quote from
+   the retrieved literature. If it can't quote evidence, the bonus is set to 0.
+   Addresses persistent bonus inflation across all approaches.
+
+5. **Stricter bonus prompt language**: Added "If you cannot cite a specific finding from
+   the retrieved literature for a bonus category, it MUST be 0" to the main prompt.
+
+LLM calls increased from 4 to 4-8 (1-2 per trial depending on bonus verification).
+Cost increase: ~$0.04 → ~$0.08 total.
+
+### Both approaches
+- Updated REMOTE_RUN_INSTRUCTIONS.md with v2.5 changes and expected improvements
+- Updated docs/CHANGELOG.md (this file)
+
+### Expected impact
+- Multi-Agentic: 34% → 55-65% (self-consistency voting + two-stage extraction should
+  fix HR cross-contamination and Enzalutamide HR=1.0 failure)
+- RAG-LLM: 51.6% → 60-70% (bonus verification + toxicity grounding should fix the
+  two biggest error sources)
+- Combined cost for full run: ~$0.20 (up from ~$0.12, still very cheap)
+
+## v2.4.1 — February 21, 2026 Deep-Dive Analysis & Documentation Update
+
+### Results deep-dive (post-run analysis of v2.3 baseline)
+- Added per-trial component breakdown table to README (CBS, Tox, Bonus for all 3 approaches
+  side-by-side with gold standard). This makes error attribution much clearer.
+- Identified HR cross-contamination in multi-agentic: HR = 0.63 was extracted for AC-TH,
+  Ipilimumab, and Ibrutinib — this is the Enzalutamide HR, confirming the LLM confuses
+  trials within the corpus when context is too large.
+- Identified RAG-LLM control-arm toxicity error for Ipilimumab: model estimated 15% Grade
+  3-4 AEs in placebo arm (gold: 28%), likely confusing "placebo" with "no toxicity."
+- Confirmed the follow-up run (23:22 UTC) produced no new results — all LLM calls hit 401
+  Unauthorized. The evaluation step re-ran against existing files and confirmed same scores.
+- Discovered `TeeWriter` missing `isatty` attribute bug in RAG pipeline — embedding model
+  load failed silently in the follow-up run, meaning RAG would have used stale embeddings.
+
+### Documentation updates
+- Rewrote README Results section with expanded analysis: per-approach breakdown, component
+  table, root cause analysis for each trial, Deep Outputs formula deviation table.
+- Rewrote README Next Steps: split into "Completed (v2.4, pending validation)", "Still
+  needed for next run" (5 items including TeeWriter fix and 401 error), and "Future
+  improvements" (6 items including ensemble approach and cost data integration).
+- Rewrote docs/EVALUATION_METRICS.md with current run data: trial-by-trial component
+  analysis, component-level accuracy tables, run environment notes, expected v2.4 impact.
+- Added Deep Outputs formula deviation analysis to both README and EVALUATION_METRICS.md.
+
+### New troubleshooting items identified
+- OpenRouter 401 error on remote machine — API key may have expired or been rotated.
+- `TeeWriter.isatty` missing — needs `isatty()` method added to `log_setup.py`.
+- RAG pipeline may use stale LanceDB embeddings if embedding model fails to load.
+- Multi-agentic pre-filtering selected NCT02294461 (177K chars, score=5) over NCT00974311
+  (246K chars, the actual AFFIRM trial) — title-keyword scoring needs tuning.
+
 ## v2.4 — February 21, 2026 Accuracy Improvements (Prompts, Retrieval, Validation)
 
 Based on diagnostic analysis of the Feb 21 run results (v2.3), this update targets

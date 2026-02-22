@@ -85,5 +85,8 @@ class TeeWriter:
         self.original.flush()
         self.log_file.flush()
 
+    def isatty(self):
+        return hasattr(self.original, 'isatty') and self.original.isatty()
+
     def close(self):
         self.log_file.close()
