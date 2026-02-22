@@ -28,6 +28,7 @@ import re
 import math
 import argparse
 from pathlib import Path
+from typing import Union, Optional, Dict, List
 from gold_standard import TRIALS, TRIAL_NAMES
 
 RESULTS_DIR = Path(__file__).resolve().parent.parent / "results"
@@ -43,7 +44,7 @@ APPROACHES = {
 # File discovery & parsing
 # ---------------------------------------------------------------------------
 
-def find_csv_for_trial(approach_dir: Path, trial_name: str) -> Path | None:
+def find_csv_for_trial(approach_dir: Path, trial_name: str) -> Optional[Path]:
     """Find the CSV file matching a trial name in an approach directory."""
     if not approach_dir.exists():
         return None
@@ -111,7 +112,7 @@ def parse_csv_scorecard(csv_path: Path) -> dict:
 # Deterministic metrics
 # ---------------------------------------------------------------------------
 
-def pearson_correlation(xs: list[float], ys: list[float]) -> float | None:
+def pearson_correlation(xs: List[float], ys: List[float]) -> Optional[float]:
     """Compute Pearson r between two lists. Returns None if undefined."""
     n = len(xs)
     if n < 2:
@@ -378,7 +379,7 @@ def run_deepeval_metrics(all_results: dict) -> dict:
 # Report formatting
 # ---------------------------------------------------------------------------
 
-def format_report(all_results: dict, deepeval_results: dict | None = None) -> str:
+def format_report(all_results: dict, deepeval_results: Optional[Dict] = None) -> str:
     """Format evaluation results into a Markdown report."""
     lines = [
         "# Evaluation Report: LLM Scorecard Approaches vs Gold Standard\n",

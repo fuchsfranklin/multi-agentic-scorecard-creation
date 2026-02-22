@@ -1,10 +1,7 @@
 Measure,Result/Score,
-Clinical Benefit Score,"HR = {'value': 0.75, 'justification': 'Pembrolizumab added to standard therapy in metastatic hormone‐sensitive prostate cancer is expected to provide an incremental benefit. A hazard ratio of 0.75 falls within the 0.75–0.90 range seen with new agents in similar settings.'} → (1 - {'value': 0.75, 'justification': 'Pembrolizumab added to standard therapy in metastatic hormone‐sensitive prostate cancer is expected to provide an incremental benefit. A hazard ratio of 0.75 falls within the 0.75–0.90 range seen with new agents in similar settings.'}) × 100 = 0.0",0.0
-Toxicity Score,0.0 / 0.0 − 1 = 0.00 → 0.00 × -20 = -0.0,-0.0
-Bonus Points,"Tail of the Curve: {'value': 0, 'justification': 'There is no clear evidence from the information provided that supports a significant long‐term tail benefit.'}",0
-,"Palliation: {'value': 0, 'justification': 'The abstract does not mention any notable improvements in symptom palliation.'}",0
-,"Treatment-Free Interval: {'value': 0, 'justification': 'There is no specific data to indicate a substantial delay in time to treatment failure.'}",0
-,"Health-related QoL: {'value': 0, 'justification': 'No quality‐of‐life measures or improvements are reported.'}",0
+Clinical Benefit Score,HR = 1.0 → (1 - 1.0) × 100 = 0.0,0.0
+Toxicity Score,0.0% / 0.0% − 1 = 0.00 → 0.00 × -20 = 0.0,0.0
+Bonus Points,"Tail: 0, Palliation: 0, TFI: 0, QoL: 0",0
 Total Bonus Points,0.0,0.0
-Net Health Benefit,0.0,0.0
-Cost,"{'value': '$12,000 per month', 'justification': 'Pembrolizumab is a high-cost, novel immunotherapy agent; $12,000 per month is a plausible US-based estimate for such therapy.'}","$12,000"
+Net Health Benefit,0.0 + (0.0) + 0.0 = 0.0,0.0
+Cost,"$25,000 per month","$25,000"

@@ -90,10 +90,12 @@ def fetch_pubmed_data(keywords, max_results=5, exclude_pmid=None, scenario_name=
                 title = article.get("ArticleTitle", "No title")
                 abstract_parts = article.get("Abstract", {}).get("AbstractText", [])
                 abstract = " ".join([str(part) for part in abstract_parts if str(part)])
+                cleaned_title = re.sub(r'\s+', ' ', title).strip()
+                cleaned_abstract = re.sub(r'\s+', ' ', abstract).strip()
                 text_content = (
                     f"PubMed Article: {pmid}\n"
-                    f"Title: {re.sub(r'\\s+', ' ', title).strip()}\n"
-                    f"Abstract: {re.sub(r'\\s+', ' ', abstract).strip()}"
+                    f"Title: {cleaned_title}\n"
+                    f"Abstract: {cleaned_abstract}"
                 )
                 documents.append({"id": f"pmid_{pmid}", "text": text_content, "source": "PubMed"})
             except Exception as e:

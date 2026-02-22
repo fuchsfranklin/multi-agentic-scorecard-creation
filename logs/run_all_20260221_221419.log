@@ -1,0 +1,261 @@
+2026-02-21 22:14:19 | INFO     | scorecard.run_all | ============================================================
+2026-02-21 22:14:19 | INFO     | scorecard.run_all |   LLM Oncology Scorecard — Full Pipeline Run
+2026-02-21 22:14:19 | INFO     | scorecard.run_all |   Timestamp: 20260221_221419
+2026-02-21 22:14:19 | INFO     | scorecard.run_all |   Log file:  C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\logs\run_all_20260221_221419.log
+2026-02-21 22:14:19 | INFO     | scorecard.run_all | ============================================================
+2026-02-21 22:14:19 | INFO     | scorecard.run_all | PRIMARY_MODEL:    google/gemini-3-flash-preview
+2026-02-21 22:14:19 | INFO     | scorecard.run_all | EXTRACTION_MODEL: openai/gpt-4.1-mini
+2026-02-21 22:14:19 | INFO     | scorecard.run_all | JUDGE_MODEL:      openai/gpt-5.1-mini
+2026-02-21 22:14:19 | INFO     | scorecard.run_all | EMBEDDING_MODEL:  all-mpnet-base-v2
+2026-02-21 22:14:19 | INFO     | scorecard.run_all | ==================================================
+2026-02-21 22:14:19 | INFO     | scorecard.run_all | Starting: single_llm
+2026-02-21 22:14:19 | INFO     | scorecard.run_all | ==================================================
+============================================================
+  Single LLM Scorecard Generation
+  Model: google/gemini-3-flash-preview
+============================================================
+
+[1/4] Generating scorecard for: Enzalutamide Versus Placebo After Chemotherapy in Metastatic...
+  CSV saved: single_llm_scorecard_Enzalutamide_Versus_Placebo_After_Chemotherapy_in_Metastatic_Adenocarcinoma_of_Prostate.csv
+
+[2/4] Generating scorecard for: Doxorubicin + Cyclophosphamide → Paclitaxel + Trastuzumab vs...
+  CSV saved: single_llm_scorecard_Doxorubicin_+_Cyclophosphamide_→_Paclitaxel_+_Trastuzumab_vs_Doxorubicin_+_Cyclophosphamide_+_Paclit.csv
+
+[3/4] Generating scorecard for: Ipilimumab Versus Placebo After Primary Treatment of Stage I...
+  CSV saved: single_llm_scorecard_Ipilimumab_Versus_Placebo_After_Primary_Treatment_of_Stage_III_Melanoma.csv
+
+[4/4] Generating scorecard for: Ibrutinib Versus Chlorambucil As Initial Therapy for Chronic...
+  CSV saved: single_llm_scorecard_Ibrutinib_Versus_Chlorambucil_As_Initial_Therapy_for_Chronic_Lymphocytic_Leukemia.csv
+
+Results saved to: C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\src\..\results\single_llm
+2026-02-21 22:14:39 | INFO     | scorecard.run_all | single_llm completed successfully
+2026-02-21 22:14:39 | INFO     | scorecard.run_all |   single_llm: success (20.6s)
+2026-02-21 22:14:39 | INFO     | scorecard.run_all | ==================================================
+2026-02-21 22:14:39 | INFO     | scorecard.run_all | Starting: multi_agentic
+2026-02-21 22:14:39 | INFO     | scorecard.run_all | ==================================================
+============================================================
+  Multi-Agentic Scorecard Generation
+  Extraction model: openai/gpt-4.1-mini
+============================================================
+2026-02-21 22:14:39,804 - INFO - Processing trial: Enzalutamide Versus Placebo After Chemotherapy in Metastatic Adenocarcinoma of Prostate
+2026-02-21 22:14:39,804 - INFO - TrialDiscoveryAgent: keyword search with 3 queries
+2026-02-21 22:14:40,220 - INFO - Found 9 NCT IDs: ['NCT07226986', 'NCT04443062', 'NCT06616155', 'NCT06991556', 'NCT01927627', 'NCT02023463', 'NCT02294461', 'NCT00974311', 'NCT02288247']
+2026-02-21 22:14:40,220 - INFO - ClinicalTrialsDetailsAgent: fetching NCT07226986
+2026-02-21 22:14:40,302 - INFO - Fetched study text: 22091 chars
+2026-02-21 22:14:40,302 - INFO - ClinicalTrialsDetailsAgent: fetching NCT04443062
+2026-02-21 22:14:40,434 - INFO - Fetched study text: 15686 chars
+2026-02-21 22:14:40,434 - INFO - ClinicalTrialsDetailsAgent: fetching NCT06616155
+2026-02-21 22:14:40,521 - INFO - Fetched study text: 17072 chars
+2026-02-21 22:14:40,521 - INFO - ClinicalTrialsDetailsAgent: fetching NCT06991556
+2026-02-21 22:14:40,617 - INFO - Fetched study text: 30613 chars
+2026-02-21 22:14:40,617 - INFO - ClinicalTrialsDetailsAgent: fetching NCT01927627
+2026-02-21 22:14:40,702 - INFO - Fetched study text: 32890 chars
+2026-02-21 22:14:40,702 - INFO - ClinicalTrialsDetailsAgent: fetching NCT02023463
+2026-02-21 22:14:40,803 - INFO - Fetched study text: 11230 chars
+2026-02-21 22:14:40,803 - INFO - ClinicalTrialsDetailsAgent: fetching NCT02294461
+2026-02-21 22:14:40,921 - INFO - Fetched study text: 177096 chars
+2026-02-21 22:14:40,921 - INFO - ClinicalTrialsDetailsAgent: fetching NCT00974311
+2026-02-21 22:14:41,034 - INFO - Fetched study text: 246106 chars
+2026-02-21 22:14:41,034 - INFO - ClinicalTrialsDetailsAgent: fetching NCT02288247
+2026-02-21 22:14:41,155 - INFO - Fetched study text: 236752 chars
+2026-02-21 22:14:41,157 - INFO - PubMedAgent: keyword search with 3 queries
+2026-02-21 22:14:42,552 - INFO - Combined corpus: 861066 chars
+2026-02-21 22:14:42,561 - INFO - ExtractionAgent: extracting metrics via LLM (json_schema mode)
+2026-02-21 22:14:43,891 - INFO - Extracted metrics: {'hazard_ratio': 1.0, 'toxicity_experimental': 0, 'toxicity_control': 0, 'bonus_tail': 0, 'bonus_palliation': 0, 'bonus_tfi': 0, 'bonus_qol': 0, 'cost_estimate': '$25,000 per month'}
+2026-02-21 22:14:43,891 - INFO - CSV saved: C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\src\..\results\multi_agentic\multi_agentic_scorecard_Enzalutamide_Versus_Placebo_After_Chemotherapy_in_Metastatic_Adenocarcinoma_of_Prostate.csv
+2026-02-21 22:14:43,891 - INFO - Processing trial: Doxorubicin + Cyclophosphamide → Paclitaxel + Trastuzumab vs Doxorubicin + Cyclophosphamide + Paclitaxel in Adjuvant HER2+ Breast Cancer
+2026-02-21 22:14:43,891 - INFO - TrialDiscoveryAgent: keyword search with 3 queries
+2026-02-21 22:14:44,271 - INFO - Found 7 NCT IDs: ['NCT00021255', 'NCT05256745', 'NCT01855828', 'NCT01220128', 'NCT07213206', 'NCT07383818', 'NCT05420467']
+2026-02-21 22:14:44,271 - INFO - ClinicalTrialsDetailsAgent: fetching NCT00021255
+2026-02-21 22:14:44,386 - INFO - Fetched study text: 118976 chars
+2026-02-21 22:14:44,400 - INFO - ClinicalTrialsDetailsAgent: fetching NCT05256745
+2026-02-21 22:14:44,491 - INFO - Fetched study text: 18510 chars
+2026-02-21 22:14:44,491 - INFO - ClinicalTrialsDetailsAgent: fetching NCT01855828
+2026-02-21 22:14:44,602 - INFO - Fetched study text: 50878 chars
+2026-02-21 22:14:44,604 - INFO - ClinicalTrialsDetailsAgent: fetching NCT01220128
+2026-02-21 22:14:44,714 - INFO - Fetched study text: 246906 chars
+2026-02-21 22:14:44,715 - INFO - ClinicalTrialsDetailsAgent: fetching NCT07213206
+2026-02-21 22:14:44,820 - INFO - Fetched study text: 9913 chars
+2026-02-21 22:14:44,820 - INFO - ClinicalTrialsDetailsAgent: fetching NCT07383818
+2026-02-21 22:14:44,952 - INFO - Fetched study text: 11661 chars
+2026-02-21 22:14:44,952 - INFO - ClinicalTrialsDetailsAgent: fetching NCT05420467
+2026-02-21 22:14:45,052 - INFO - Fetched study text: 18863 chars
+2026-02-21 22:14:45,052 - INFO - PubMedAgent: keyword search with 3 queries
+2026-02-21 22:14:46,453 - INFO - Combined corpus: 516751 chars
+2026-02-21 22:14:46,453 - INFO - ExtractionAgent: extracting metrics via LLM (json_schema mode)
+2026-02-21 22:14:47,820 - INFO - Extracted metrics: {'hazard_ratio': 0.63, 'toxicity_experimental': 28.0, 'toxicity_control': 22.0, 'bonus_tail': 0, 'bonus_palliation': 0, 'bonus_tfi': 0, 'bonus_qol': 0, 'cost_estimate': '$6,500 per month'}
+2026-02-21 22:14:47,820 - INFO - CSV saved: C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\src\..\results\multi_agentic\multi_agentic_scorecard_Doxorubicin_+_Cyclophosphamide_→_Paclitaxel_+_Trastuzumab_vs_Doxorubicin_+_Cyclophosphamide_+_Paclit.csv
+2026-02-21 22:14:47,820 - INFO - Processing trial: Ipilimumab Versus Placebo After Primary Treatment of Stage III Melanoma
+2026-02-21 22:14:47,820 - INFO - TrialDiscoveryAgent: keyword search with 3 queries
+2026-02-21 22:14:48,246 - INFO - Found 8 NCT IDs: ['NCT02941744', 'NCT06794775', 'NCT04418167', 'NCT03388632', 'NCT03793166', 'NCT03354962', 'NCT00636168', 'NCT02388906']
+2026-02-21 22:14:48,253 - INFO - ClinicalTrialsDetailsAgent: fetching NCT02941744
+2026-02-21 22:14:48,329 - INFO - Fetched study text: 15828 chars
+2026-02-21 22:14:48,331 - INFO - ClinicalTrialsDetailsAgent: fetching NCT06794775
+2026-02-21 22:14:48,421 - INFO - Fetched study text: 14429 chars
+2026-02-21 22:14:48,421 - INFO - ClinicalTrialsDetailsAgent: fetching NCT04418167
+2026-02-21 22:14:48,503 - INFO - Fetched study text: 21584 chars
+2026-02-21 22:14:48,503 - INFO - ClinicalTrialsDetailsAgent: fetching NCT03388632
+2026-02-21 22:14:48,638 - INFO - Fetched study text: 251967 chars
+2026-02-21 22:14:48,638 - INFO - ClinicalTrialsDetailsAgent: fetching NCT03793166
+2026-02-21 22:14:48,770 - INFO - Fetched study text: 192190 chars
+2026-02-21 22:14:48,770 - INFO - ClinicalTrialsDetailsAgent: fetching NCT03354962
+2026-02-21 22:14:48,861 - INFO - Fetched study text: 13446 chars
+2026-02-21 22:14:48,861 - INFO - ClinicalTrialsDetailsAgent: fetching NCT00636168
+2026-02-21 22:14:48,970 - INFO - Fetched study text: 165615 chars
+2026-02-21 22:14:48,970 - INFO - ClinicalTrialsDetailsAgent: fetching NCT02388906
+2026-02-21 22:14:49,061 - INFO - Fetched study text: 145591 chars
+2026-02-21 22:14:49,069 - INFO - PubMedAgent: keyword search with 3 queries
+2026-02-21 22:14:50,505 - INFO - Combined corpus: 887634 chars
+2026-02-21 22:14:50,521 - INFO - ExtractionAgent: extracting metrics via LLM (json_schema mode)
+2026-02-21 22:14:51,904 - INFO - Extracted metrics: {'hazard_ratio': 0.66, 'toxicity_experimental': 30, 'toxicity_control': 0, 'bonus_tail': 0, 'bonus_palliation': 0, 'bonus_tfi': 0, 'bonus_qol': 0, 'cost_estimate': '$12,000 per month'}
+2026-02-21 22:14:51,904 - INFO - CSV saved: C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\src\..\results\multi_agentic\multi_agentic_scorecard_Ipilimumab_Versus_Placebo_After_Primary_Treatment_of_Stage_III_Melanoma.csv
+2026-02-21 22:14:51,904 - INFO - Processing trial: Ibrutinib Versus Chlorambucil As Initial Therapy for Chronic Lymphocytic Leukemia
+2026-02-21 22:14:51,904 - INFO - TrialDiscoveryAgent: keyword search with 3 queries
+2026-02-21 22:14:52,273 - INFO - Found 5 NCT IDs: ['NCT03462719', 'NCT03454165', 'NCT05272813', 'NCT05943496', 'NCT01722487']
+2026-02-21 22:14:52,273 - INFO - ClinicalTrialsDetailsAgent: fetching NCT03462719
+2026-02-21 22:14:52,384 - INFO - Fetched study text: 138901 chars
+2026-02-21 22:14:52,384 - INFO - ClinicalTrialsDetailsAgent: fetching NCT03454165
+2026-02-21 22:14:52,472 - INFO - Fetched study text: 16113 chars
+2026-02-21 22:14:52,472 - INFO - ClinicalTrialsDetailsAgent: fetching NCT05272813
+2026-02-21 22:14:52,555 - INFO - Fetched study text: 7714 chars
+2026-02-21 22:14:52,555 - INFO - ClinicalTrialsDetailsAgent: fetching NCT05943496
+2026-02-21 22:14:52,655 - INFO - Fetched study text: 20776 chars
+2026-02-21 22:14:52,655 - INFO - ClinicalTrialsDetailsAgent: fetching NCT01722487
+2026-02-21 22:14:52,771 - INFO - Fetched study text: 108714 chars
+2026-02-21 22:14:52,771 - INFO - PubMedAgent: keyword search with 3 queries
+2026-02-21 22:14:54,156 - INFO - Combined corpus: 344845 chars
+2026-02-21 22:14:54,156 - INFO - ExtractionAgent: extracting metrics via LLM (json_schema mode)
+2026-02-21 22:14:56,190 - INFO - Extracted metrics: {'hazard_ratio': 0.63, 'toxicity_experimental': 15.0, 'toxicity_control': 20.0, 'bonus_tail': 0, 'bonus_palliation': 0, 'bonus_tfi': 0, 'bonus_qol': 0, 'cost_estimate': '$14,000 per month'}
+2026-02-21 22:14:56,191 - INFO - CSV saved: C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\src\..\results\multi_agentic\multi_agentic_scorecard_Ibrutinib_Versus_Chlorambucil_As_Initial_Therapy_for_Chronic_Lymphocytic_Leukemia.csv
+
+Results written to: C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\src\..\results\multi_agentic\multi_agentic_scorecard_results.md
+2026-02-21 22:14:56 | INFO     | scorecard.run_all | multi_agentic completed successfully
+2026-02-21 22:14:56,195 - INFO - multi_agentic completed successfully
+2026-02-21 22:14:56 | INFO     | scorecard.run_all |   multi_agentic: success (16.4s)
+2026-02-21 22:14:56,195 - INFO -   multi_agentic: success (16.4s)
+2026-02-21 22:14:56 | INFO     | scorecard.run_all | ==================================================
+2026-02-21 22:14:56,195 - INFO - ==================================================
+2026-02-21 22:14:56 | INFO     | scorecard.run_all | Starting: rag_llm
+2026-02-21 22:14:56,195 - INFO - Starting: rag_llm
+2026-02-21 22:14:56 | INFO     | scorecard.run_all | ==================================================
+2026-02-21 22:14:56,195 - INFO - ==================================================
+2026-02-21 22:15:00,631 - INFO - PyTorch version 2.4.1 available.
+============================================================
+  RAG-LLM Scorecard Generation (LanceDB Hybrid Search)
+  Model: google/gemini-3-flash-preview
+  Embedding: all-mpnet-base-v2
+============================================================
+2026-02-21 22:15:00,991 - INFO - Use pytorch device_name: cpu
+2026-02-21 22:15:00,991 - INFO - Load pretrained SentenceTransformer: all-mpnet-base-v2
+2026-02-21 22:15:01,891 - INFO - Loaded embedding model: all-mpnet-base-v2
+2026-02-21 22:15:01,891 - INFO - Initializing LanceDB at: C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\lancedb
+2026-02-21 22:15:02,091 - INFO - Opened existing table: pubmed_embeddings
+2026-02-21 22:15:02,091 - INFO - [Enzalutamide Versus Placebo After Chemot] PubMed search: ['enzalutamide prostate cancer efficacy', 'enzalutamide toxicity', 'metastatic castration-resistant prostate cancer outcomes']
+2026-02-21 22:15:02,773 - INFO - [Enzalutamide Versus Placebo After Chemot] Fetched 5 PubMed documents
+2026-02-21 22:15:03,276 - INFO - [Doxorubicin + Cyclophosphamide → Paclita] PubMed search: ['trastuzumab adjuvant breast cancer overview', 'HER2 targeted therapy principles', 'AC-TH vs AC-T breast cancer']
+2026-02-21 22:15:03,942 - INFO - [Doxorubicin + Cyclophosphamide → Paclita] Fetched 5 PubMed documents
+2026-02-21 22:15:04,443 - INFO - [Ipilimumab Versus Placebo After Primary ] PubMed search: ['ipilimumab adjuvant melanoma background', 'CTLA-4 inhibitor mechanism', 'immunotherapy toxicity melanoma']
+2026-02-21 22:15:06,063 - INFO - [Ipilimumab Versus Placebo After Primary ] Fetched 5 PubMed documents
+2026-02-21 22:15:06,577 - INFO - [Ibrutinib Versus Chlorambucil As Initial] PubMed search: ['ibrutinib CLL first-line context', 'BTK inhibitor principles', 'ibrutinib vs chlorambucil CLL']
+2026-02-21 22:15:07,165 - INFO - [Ibrutinib Versus Chlorambucil As Initial] Fetched 5 PubMed documents
+2026-02-21 22:15:07,665 - INFO - Total unique PubMed documents: 20
+2026-02-21 22:15:07,665 - INFO - Ingesting 20 documents into LanceDB
+Batches:   0%|                                           | 0/1 [00:00<?, ?it/s]Batches: 100%|###################################| 1/1 [00:00<00:00,  2.34it/s]Batches: 100%|###################################| 1/1 [00:00<00:00,  2.34it/s]
+Batches:   0%|                                           | 0/1 [00:00<?, ?it/s]Batches: 100%|###################################| 1/1 [00:00<00:00,  2.78it/s]Batches: 100%|###################################| 1/1 [00:00<00:00,  2.78it/s]
+Batches:   0%|                                           | 0/1 [00:00<?, ?it/s]Batches: 100%|###################################| 1/1 [00:00<00:00,  2.74it/s]Batches: 100%|###################################| 1/1 [00:00<00:00,  2.63it/s]
+Batches:   0%|                                           | 0/1 [00:00<?, ?it/s]Batches: 100%|###################################| 1/1 [00:00<00:00,  2.86it/s]Batches: 100%|###################################| 1/1 [00:00<00:00,  2.86it/s]
+Batches:   0%|                                           | 0/1 [00:00<?, ?it/s]Batches: 100%|###################################| 1/1 [00:00<00:00,  2.81it/s]Batches: 100%|###################################| 1/1 [00:00<00:00,  2.81it/s]
+Batches:   0%|                                           | 0/1 [00:00<?, ?it/s]Batches: 100%|###################################| 1/1 [00:00<00:00,  2.85it/s]Batches: 100%|###################################| 1/1 [00:00<00:00,  2.85it/s]
+Batches:   0%|                                           | 0/1 [00:00<?, ?it/s]Batches: 100%|###################################| 1/1 [00:00<00:00,  2.73it/s]Batches: 100%|###################################| 1/1 [00:00<00:00,  2.73it/s]
+Batches:   0%|                                           | 0/1 [00:00<?, ?it/s]Batches: 100%|###################################| 1/1 [00:00<00:00,  2.81it/s]Batches: 100%|###################################| 1/1 [00:00<00:00,  2.81it/s]
+Batches:   0%|                                           | 0/1 [00:00<?, ?it/s]Batches: 100%|###################################| 1/1 [00:00<00:00,  2.59it/s]Batches: 100%|###################################| 1/1 [00:00<00:00,  2.55it/s]
+Batches:   0%|                                           | 0/1 [00:00<?, ?it/s]Batches: 100%|###################################| 1/1 [00:00<00:00,  2.77it/s]Batches: 100%|###################################| 1/1 [00:00<00:00,  2.77it/s]
+Batches:   0%|                                           | 0/1 [00:00<?, ?it/s]Batches: 100%|###################################| 1/1 [00:00<00:00,  2.86it/s]Batches: 100%|###################################| 1/1 [00:00<00:00,  2.86it/s]
+Batches:   0%|                                           | 0/1 [00:00<?, ?it/s]Batches: 100%|###################################| 1/1 [00:00<00:00,  2.71it/s]Batches: 100%|###################################| 1/1 [00:00<00:00,  2.69it/s]
+Batches:   0%|                                           | 0/1 [00:00<?, ?it/s]Batches: 100%|###################################| 1/1 [00:00<00:00,  2.95it/s]Batches: 100%|###################################| 1/1 [00:00<00:00,  2.87it/s]
+Batches:   0%|                                           | 0/1 [00:00<?, ?it/s]Batches: 100%|###################################| 1/1 [00:00<00:00,  2.71it/s]Batches: 100%|###################################| 1/1 [00:00<00:00,  2.71it/s]
+Batches:   0%|                                           | 0/1 [00:00<?, ?it/s]Batches: 100%|###################################| 1/1 [00:00<00:00,  3.18it/s]Batches: 100%|###################################| 1/1 [00:00<00:00,  3.18it/s]
+Batches:   0%|                                           | 0/1 [00:00<?, ?it/s]Batches: 100%|###################################| 1/1 [00:00<00:00,  2.94it/s]Batches: 100%|###################################| 1/1 [00:00<00:00,  2.94it/s]
+Batches:   0%|                                           | 0/1 [00:00<?, ?it/s]Batches: 100%|###################################| 1/1 [00:00<00:00,  3.31it/s]Batches: 100%|###################################| 1/1 [00:00<00:00,  3.29it/s]
+Batches:   0%|                                           | 0/1 [00:00<?, ?it/s]Batches: 100%|###################################| 1/1 [00:00<00:00,  2.86it/s]Batches: 100%|###################################| 1/1 [00:00<00:00,  2.86it/s]
+Batches:   0%|                                           | 0/1 [00:00<?, ?it/s]Batches: 100%|###################################| 1/1 [00:00<00:00,  2.78it/s]Batches: 100%|###################################| 1/1 [00:00<00:00,  2.78it/s]
+Batches:   0%|                                           | 0/1 [00:00<?, ?it/s]Batches: 100%|###################################| 1/1 [00:00<00:00,  3.43it/s]Batches: 100%|###################################| 1/1 [00:00<00:00,  3.43it/s]
+2026-02-21 22:15:14,891 - INFO - Added 20 documents to LanceDB
+2026-02-21 22:15:14,891 - WARNING - FTS index creation failed (may already exist): Please install tantivy-py `pip install tantivy` to use the full text search feature.
+2026-02-21 22:15:14,900 - INFO - LanceDB records after ingestion: 40
+2026-02-21 22:15:14,900 - INFO - Generating RAG scorecard for: Enzalutamide Versus Placebo After Chemotherapy in Metastatic Adenocarcinoma of Prostate
+Batches:   0%|                                           | 0/1 [00:00<?, ?it/s]Batches: 100%|###################################| 1/1 [00:00<00:00, 29.51it/s]
+2026-02-21 22:15:14,939 - WARNING - Hybrid search failed ('LanceEmptyQueryBuilder' object has no attribute 'vector'), falling back to vector search
+2026-02-21 22:15:14,946 - INFO - Vector search returned 5 results
+2026-02-21 22:15:21,804 - INFO - LLM response received for Enzalutamide Versus Placebo After Chemotherapy in Metastatic Adenocarcinoma of Prostate
+2026-02-21 22:15:21,811 - INFO - CSV saved: C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\src\..\results\rag_llm\rag_llm_scorecard_Enzalutamide_Versus_Placebo_After_Chemotherapy_in_Metastatic_Adenocarcinoma_of_Prostate.csv
+2026-02-21 22:15:21,811 - INFO - Generating RAG scorecard for: Doxorubicin + Cyclophosphamide → Paclitaxel + Trastuzumab vs Doxorubicin + Cyclophosphamide + Paclitaxel in Adjuvant HER2+ Breast Cancer
+Batches:   0%|                                           | 0/1 [00:00<?, ?it/s]Batches: 100%|###################################| 1/1 [00:00<00:00, 19.20it/s]
+2026-02-21 22:15:21,869 - WARNING - Hybrid search failed ('LanceEmptyQueryBuilder' object has no attribute 'vector'), falling back to vector search
+2026-02-21 22:15:21,874 - INFO - Vector search returned 5 results
+2026-02-21 22:15:29,099 - INFO - LLM response received for Doxorubicin + Cyclophosphamide → Paclitaxel + Trastuzumab vs Doxorubicin + Cyclophosphamide + Paclitaxel in Adjuvant HER2+ Breast Cancer
+2026-02-21 22:15:29,100 - INFO - CSV saved: C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\src\..\results\rag_llm\rag_llm_scorecard_Doxorubicin_+_Cyclophosphamide_→_Paclitaxel_+_Trastuzumab_vs_Doxorubicin_+_Cyclophosphamide_+_Paclit.csv
+2026-02-21 22:15:29,101 - INFO - Generating RAG scorecard for: Ipilimumab Versus Placebo After Primary Treatment of Stage III Melanoma
+Batches:   0%|                                           | 0/1 [00:00<?, ?it/s]Batches: 100%|###################################| 1/1 [00:00<00:00, 33.42it/s]
+2026-02-21 22:15:29,134 - WARNING - Hybrid search failed ('LanceEmptyQueryBuilder' object has no attribute 'vector'), falling back to vector search
+2026-02-21 22:15:29,137 - INFO - Vector search returned 5 results
+2026-02-21 22:15:36,007 - INFO - LLM response received for Ipilimumab Versus Placebo After Primary Treatment of Stage III Melanoma
+2026-02-21 22:15:36,011 - INFO - CSV saved: C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\src\..\results\rag_llm\rag_llm_scorecard_Ipilimumab_Versus_Placebo_After_Primary_Treatment_of_Stage_III_Melanoma.csv
+2026-02-21 22:15:36,011 - INFO - Generating RAG scorecard for: Ibrutinib Versus Chlorambucil As Initial Therapy for Chronic Lymphocytic Leukemia
+Batches:   0%|                                           | 0/1 [00:00<?, ?it/s]Batches: 100%|###################################| 1/1 [00:00<00:00, 19.30it/s]
+2026-02-21 22:15:36,063 - WARNING - Hybrid search failed ('LanceEmptyQueryBuilder' object has no attribute 'vector'), falling back to vector search
+2026-02-21 22:15:36,065 - INFO - Vector search returned 5 results
+2026-02-21 22:15:42,073 - INFO - LLM response received for Ibrutinib Versus Chlorambucil As Initial Therapy for Chronic Lymphocytic Leukemia
+2026-02-21 22:15:42,073 - INFO - CSV saved: C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\src\..\results\rag_llm\rag_llm_scorecard_Ibrutinib_Versus_Chlorambucil_As_Initial_Therapy_for_Chronic_Lymphocytic_Leukemia.csv
+
+Results saved to: C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\src\..\results\rag_llm\rag_llm_asco_scorecard_results_pubmed_lancedb.md
+2026-02-21 22:15:42 | INFO     | scorecard.run_all | rag_llm completed successfully
+2026-02-21 22:15:42,073 - INFO - rag_llm completed successfully
+2026-02-21 22:15:42 | INFO     | scorecard.run_all |   rag_llm: success (45.9s)
+2026-02-21 22:15:42,073 - INFO -   rag_llm: success (45.9s)
+2026-02-21 22:15:42 | INFO     | scorecard.run_all | ==================================================
+2026-02-21 22:15:42,073 - INFO - ==================================================
+2026-02-21 22:15:42 | INFO     | scorecard.run_all | Starting: Evaluation Pipeline
+2026-02-21 22:15:42,073 - INFO - Starting: Evaluation Pipeline
+2026-02-21 22:15:42 | INFO     | scorecard.run_all | ==================================================
+2026-02-21 22:15:42,083 - INFO - ==================================================
+============================================================
+  LLM Oncology Scorecard — Evaluation Pipeline
+============================================================
+
+Evaluating: single_llm
+  Accuracy: 67.1%  |  MAPE: 32.9%  |  Pearson r: 0.856
+
+Evaluating: multi_agentic
+  Accuracy: 34.0%  |  MAPE: 66.0%  |  Pearson r: -0.274
+
+Evaluating: rag_llm
+  Accuracy: 51.6%  |  MAPE: 48.4%  |  Pearson r: 0.808
+
+Report written to: C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\results\evaluation_report.md
+2026-02-21 22:15:42 | INFO     | scorecard.run_all | Evaluation completed successfully
+2026-02-21 22:15:42,106 - INFO - Evaluation completed successfully
+2026-02-21 22:15:42 | INFO     | scorecard.run_all | 
+2026-02-21 22:15:42,106 - INFO - 
+2026-02-21 22:15:42 | INFO     | scorecard.run_all | ============================================================
+2026-02-21 22:15:42,106 - INFO - ============================================================
+2026-02-21 22:15:42 | INFO     | scorecard.run_all |   RUN SUMMARY
+2026-02-21 22:15:42,106 - INFO -   RUN SUMMARY
+2026-02-21 22:15:42 | INFO     | scorecard.run_all | ============================================================
+2026-02-21 22:15:42,106 - INFO - ============================================================
+2026-02-21 22:15:42 | INFO     | scorecard.run_all |   Total steps: 4  |  Passed: 4  |  Failed: 0
+2026-02-21 22:15:42,106 - INFO -   Total steps: 4  |  Passed: 4  |  Failed: 0
+2026-02-21 22:15:42 | INFO     | scorecard.run_all |   Total time:  82.9s
+2026-02-21 22:15:42,106 - INFO -   Total time:  82.9s
+2026-02-21 22:15:42 | INFO     | scorecard.run_all |   Log file:    C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\logs\run_all_20260221_221419.log
+2026-02-21 22:15:42,106 - INFO -   Log file:    C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\logs\run_all_20260221_221419.log
+2026-02-21 22:15:42 | INFO     | scorecard.run_all |   ✓ single_llm: success (20.6s)
+2026-02-21 22:15:42,106 - INFO -   ✓ single_llm: success (20.6s)
+2026-02-21 22:15:42 | INFO     | scorecard.run_all |   ✓ multi_agentic: success (16.4s)
+2026-02-21 22:15:42,106 - INFO -   ✓ multi_agentic: success (16.4s)
+2026-02-21 22:15:42 | INFO     | scorecard.run_all |   ✓ rag_llm: success (45.9s)
+2026-02-21 22:15:42,106 - INFO -   ✓ rag_llm: success (45.9s)
+2026-02-21 22:15:42 | INFO     | scorecard.run_all |   ✓ evaluation: success (0.0s)
+2026-02-21 22:15:42,106 - INFO -   ✓ evaluation: success (0.0s)
+2026-02-21 22:15:42 | INFO     | scorecard.run_all |   Summary:     C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\logs\run_summary_20260221_221419.json
+2026-02-21 22:15:42,106 - INFO -   Summary:     C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\logs\run_summary_20260221_221419.json

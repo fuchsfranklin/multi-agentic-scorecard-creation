@@ -14,6 +14,7 @@ import sys
 import logging
 import datetime
 from pathlib import Path
+from typing import Tuple
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 LOGS_DIR = _PROJECT_ROOT / "logs"
@@ -22,7 +23,7 @@ LOGS_DIR = _PROJECT_ROOT / "logs"
 def get_run_logger(
     script_name: str,
     level: int = logging.INFO,
-) -> tuple[logging.Logger, Path]:
+) -> Tuple[logging.Logger, Path]:
     """Create a logger that writes to both console and a timestamped log file.
 
     Args:
