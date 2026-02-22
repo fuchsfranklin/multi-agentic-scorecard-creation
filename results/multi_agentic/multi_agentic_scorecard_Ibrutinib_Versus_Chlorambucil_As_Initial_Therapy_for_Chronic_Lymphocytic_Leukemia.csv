@@ -1,10 +1,7 @@
 Measure,Result/Score,
-Clinical Benefit Score,HR = 0.70 (This reflects an incremental overall survival benefit from using 1L ibrutinib over chemotherapy-based regimens; practice-changing drugs often achieve HRs in the range of 0.60–0.80.) → (1 - 0.70 (This reflects an incremental overall survival benefit from using 1L ibrutinib over chemotherapy-based regimens; practice-changing drugs often achieve HRs in the range of 0.60–0.80.)) × 100 = 0.0,0.0
-Toxicity Score,0.0 / 0.0 − 1 = 0.00 → 0.00 × -20 = -0.0,-0.0
-Bonus Points,Tail of the Curve: 0 (There is no clear evidence presented in the abstract that suggests a long-term tail-of-the-curve benefit.),0
-,Palliation: 0 (The abstract does not provide data on symptom palliation improvements.),0
-,Treatment-Free Interval: 0 (There is no mention or data regarding an extended treatment-free interval.),0
-,Health-related QoL: 0 (Quality of life benefits are not detailed in the provided text.),0
+Clinical Benefit Score,HR = 0.63 → (1 - 0.63) × 100 = 37.0,37.0
+Toxicity Score,15.0% / 20.0% − 1 = -0.25 → -0.25 × -20 = 5.0,5.0
+Bonus Points,"Tail: 0, Palliation: 0, TFI: 0, QoL: 0",0
 Total Bonus Points,0.0,0.0
-Net Health Benefit,0.0,0.0
-Cost,"$12,000 per month (This is a plausible US estimate for a high-cost novel agent like ibrutinib.)","$12,000"
+Net Health Benefit,37.0 + (5.0) + 0.0 = 42.0,42.0
+Cost,"$14,000 per month","$14,000"

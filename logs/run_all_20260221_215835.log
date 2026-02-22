@@ -1,0 +1,77 @@
+2026-02-21 21:58:35 | INFO     | scorecard.run_all | ============================================================
+2026-02-21 21:58:35 | INFO     | scorecard.run_all |   LLM Oncology Scorecard — Full Pipeline Run
+2026-02-21 21:58:35 | INFO     | scorecard.run_all |   Timestamp: 20260221_215835
+2026-02-21 21:58:35 | INFO     | scorecard.run_all |   Log file:  C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\logs\run_all_20260221_215835.log
+2026-02-21 21:58:35 | INFO     | scorecard.run_all | ============================================================
+2026-02-21 21:58:35 | INFO     | scorecard.run_all | PRIMARY_MODEL:    google/gemini-3-flash-preview
+2026-02-21 21:58:35 | INFO     | scorecard.run_all | EXTRACTION_MODEL: openai/gpt-5.1-mini
+2026-02-21 21:58:35 | INFO     | scorecard.run_all | JUDGE_MODEL:      openai/gpt-5.1-mini
+2026-02-21 21:58:35 | INFO     | scorecard.run_all | EMBEDDING_MODEL:  all-mpnet-base-v2
+2026-02-21 21:58:35 | INFO     | scorecard.run_all | ==================================================
+2026-02-21 21:58:35 | INFO     | scorecard.run_all | Starting: single_llm
+2026-02-21 21:58:35 | INFO     | scorecard.run_all | ==================================================
+2026-02-21 21:58:35 | ERROR    | scorecard.run_all | single_llm FAILED: unsupported operand type(s) for |: 'type' and 'NoneType'
+2026-02-21 21:58:35 | ERROR    | scorecard.run_all | Traceback (most recent call last):
+  File "run_all.py", line 48, in run_approach
+    from single_llm_scorecard import main as run_single
+  File "C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\src\single_llm_scorecard.py", line 22, in <module>
+    from llm_client import LLMClient
+  File "C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\src\llm_client.py", line 63, in <module>
+    class LLMClient:
+  File "C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\src\llm_client.py", line 66, in LLMClient
+    def __init__(self, model: str | None = None):
+TypeError: unsupported operand type(s) for |: 'type' and 'NoneType'
+
+2026-02-21 21:58:35 | INFO     | scorecard.run_all |   single_llm: error (0.1s)
+2026-02-21 21:58:35 | INFO     | scorecard.run_all | ==================================================
+2026-02-21 21:58:35 | INFO     | scorecard.run_all | Starting: multi_agentic
+2026-02-21 21:58:35 | INFO     | scorecard.run_all | ==================================================
+2026-02-21 21:58:35 | ERROR    | scorecard.run_all | multi_agentic FAILED: unsupported operand type(s) for |: 'type' and 'NoneType'
+2026-02-21 21:58:35 | ERROR    | scorecard.run_all | Traceback (most recent call last):
+  File "run_all.py", line 51, in run_approach
+    from multi_agentic_scorecard import main as run_multi
+  File "C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\src\multi_agentic_scorecard.py", line 34, in <module>
+    from llm_client import LLMClient, DailyRateLimitError
+  File "C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\src\llm_client.py", line 63, in <module>
+    class LLMClient:
+  File "C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\src\llm_client.py", line 66, in LLMClient
+    def __init__(self, model: str | None = None):
+TypeError: unsupported operand type(s) for |: 'type' and 'NoneType'
+
+2026-02-21 21:58:35 | INFO     | scorecard.run_all |   multi_agentic: error (0.0s)
+2026-02-21 21:58:35 | INFO     | scorecard.run_all | ==================================================
+2026-02-21 21:58:35 | INFO     | scorecard.run_all | Starting: rag_llm
+2026-02-21 21:58:35 | INFO     | scorecard.run_all | ==================================================
+2026-02-21 21:58:35 | ERROR    | scorecard.run_all | rag_llm FAILED: f-string expression part cannot include a backslash (rag_llm_scorecard.py, line 94)
+2026-02-21 21:58:35 | ERROR    | scorecard.run_all | Traceback (most recent call last):
+  File "run_all.py", line 54, in run_approach
+    from rag_llm_scorecard import main as run_rag
+  File "C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\src\rag_llm_scorecard.py", line 94
+    f"PubMed Article: {pmid}\n"
+    ^
+SyntaxError: f-string expression part cannot include a backslash
+
+2026-02-21 21:58:35 | INFO     | scorecard.run_all |   rag_llm: error (0.0s)
+2026-02-21 21:58:35 | INFO     | scorecard.run_all | ==================================================
+2026-02-21 21:58:35 | INFO     | scorecard.run_all | Starting: Evaluation Pipeline
+2026-02-21 21:58:35 | INFO     | scorecard.run_all | ==================================================
+2026-02-21 21:58:35 | ERROR    | scorecard.run_all | Evaluation FAILED: unsupported operand type(s) for |: 'type' and 'NoneType'
+2026-02-21 21:58:35 | ERROR    | scorecard.run_all | Traceback (most recent call last):
+  File "run_all.py", line 90, in run_evaluation
+    from evaluate import main as run_eval
+  File "C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\src\evaluate.py", line 46, in <module>
+    def find_csv_for_trial(approach_dir: Path, trial_name: str) -> Path | None:
+TypeError: unsupported operand type(s) for |: 'type' and 'NoneType'
+
+2026-02-21 21:58:35 | INFO     | scorecard.run_all | 
+2026-02-21 21:58:35 | INFO     | scorecard.run_all | ============================================================
+2026-02-21 21:58:35 | INFO     | scorecard.run_all |   RUN SUMMARY
+2026-02-21 21:58:35 | INFO     | scorecard.run_all | ============================================================
+2026-02-21 21:58:35 | INFO     | scorecard.run_all |   Total steps: 4  |  Passed: 0  |  Failed: 4
+2026-02-21 21:58:35 | INFO     | scorecard.run_all |   Total time:  0.2s
+2026-02-21 21:58:35 | INFO     | scorecard.run_all |   Log file:    C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\logs\run_all_20260221_215835.log
+2026-02-21 21:58:35 | INFO     | scorecard.run_all |   ✗ single_llm: error (0.1s) — TypeError: unsupported operand type(s) for |: 'type' and 'NoneType'
+2026-02-21 21:58:35 | INFO     | scorecard.run_all |   ✗ multi_agentic: error (0.0s) — TypeError: unsupported operand type(s) for |: 'type' and 'NoneType'
+2026-02-21 21:58:35 | INFO     | scorecard.run_all |   ✗ rag_llm: error (0.0s) — SyntaxError: f-string expression part cannot include a backslash (rag_llm_scorecard.py, line 94)
+2026-02-21 21:58:35 | INFO     | scorecard.run_all |   ✗ evaluation: error (0.0s) — TypeError: unsupported operand type(s) for |: 'type' and 'NoneType'
+2026-02-21 21:58:35 | INFO     | scorecard.run_all |   Summary:     C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\logs\run_summary_20260221_215835.json

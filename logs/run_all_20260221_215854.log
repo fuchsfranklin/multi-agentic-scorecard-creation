@@ -1,0 +1,203 @@
+2026-02-21 21:58:54 | INFO     | scorecard.run_all | ============================================================
+2026-02-21 21:58:54 | INFO     | scorecard.run_all |   LLM Oncology Scorecard — Full Pipeline Run
+2026-02-21 21:58:54 | INFO     | scorecard.run_all |   Timestamp: 20260221_215854
+2026-02-21 21:58:54 | INFO     | scorecard.run_all |   Log file:  C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\logs\run_all_20260221_215854.log
+2026-02-21 21:58:54 | INFO     | scorecard.run_all | ============================================================
+2026-02-21 21:58:54 | INFO     | scorecard.run_all | PRIMARY_MODEL:    google/gemini-3-flash-preview
+2026-02-21 21:58:54 | INFO     | scorecard.run_all | EXTRACTION_MODEL: openai/gpt-5.1-mini
+2026-02-21 21:58:54 | INFO     | scorecard.run_all | JUDGE_MODEL:      openai/gpt-5.1-mini
+2026-02-21 21:58:54 | INFO     | scorecard.run_all | EMBEDDING_MODEL:  all-mpnet-base-v2
+2026-02-21 21:58:54 | INFO     | scorecard.run_all | ==================================================
+2026-02-21 21:58:54 | INFO     | scorecard.run_all | Starting: single_llm
+2026-02-21 21:58:54 | INFO     | scorecard.run_all | ==================================================
+============================================================
+  Single LLM Scorecard Generation
+  Model: google/gemini-3-flash-preview
+============================================================
+
+[1/4] Generating scorecard for: Enzalutamide Versus Placebo After Chemotherapy in Metastatic...
+  ERROR: 401 Client Error: Unauthorized for url: https://openrouter.ai/api/v1/chat/completions
+
+[2/4] Generating scorecard for: Doxorubicin + Cyclophosphamide → Paclitaxel + Trastuzumab vs...
+  ERROR: 401 Client Error: Unauthorized for url: https://openrouter.ai/api/v1/chat/completions
+
+[3/4] Generating scorecard for: Ipilimumab Versus Placebo After Primary Treatment of Stage I...
+  ERROR: 401 Client Error: Unauthorized for url: https://openrouter.ai/api/v1/chat/completions
+
+[4/4] Generating scorecard for: Ibrutinib Versus Chlorambucil As Initial Therapy for Chronic...
+  ERROR: 401 Client Error: Unauthorized for url: https://openrouter.ai/api/v1/chat/completions
+
+Results saved to: C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\src\..\results\single_llm
+2026-02-21 21:58:55 | INFO     | scorecard.run_all | single_llm completed successfully
+2026-02-21 21:58:55 | INFO     | scorecard.run_all |   single_llm: success (0.7s)
+2026-02-21 21:58:55 | INFO     | scorecard.run_all | ==================================================
+2026-02-21 21:58:55 | INFO     | scorecard.run_all | Starting: multi_agentic
+2026-02-21 21:58:55 | INFO     | scorecard.run_all | ==================================================
+============================================================
+  Multi-Agentic Scorecard Generation
+  Extraction model: openai/gpt-5.1-mini
+============================================================
+2026-02-21 21:58:55,237 - INFO - Processing trial: Enzalutamide Versus Placebo After Chemotherapy in Metastatic Adenocarcinoma of Prostate
+2026-02-21 21:58:55,237 - INFO - TrialDiscoveryAgent: keyword search with 3 queries
+2026-02-21 21:58:55,672 - INFO - Found 9 NCT IDs: ['NCT07226986', 'NCT04443062', 'NCT06616155', 'NCT06991556', 'NCT01927627', 'NCT02023463', 'NCT02294461', 'NCT00974311', 'NCT02288247']
+2026-02-21 21:58:55,672 - INFO - ClinicalTrialsDetailsAgent: fetching NCT07226986
+2026-02-21 21:58:55,775 - INFO - Fetched study text: 22091 chars
+2026-02-21 21:58:55,775 - INFO - ClinicalTrialsDetailsAgent: fetching NCT04443062
+2026-02-21 21:58:55,873 - INFO - Fetched study text: 15686 chars
+2026-02-21 21:58:55,874 - INFO - ClinicalTrialsDetailsAgent: fetching NCT06616155
+2026-02-21 21:58:55,971 - INFO - Fetched study text: 17072 chars
+2026-02-21 21:58:55,971 - INFO - ClinicalTrialsDetailsAgent: fetching NCT06991556
+2026-02-21 21:58:56,075 - INFO - Fetched study text: 30613 chars
+2026-02-21 21:58:56,075 - INFO - ClinicalTrialsDetailsAgent: fetching NCT01927627
+2026-02-21 21:58:56,171 - INFO - Fetched study text: 32890 chars
+2026-02-21 21:58:56,171 - INFO - ClinicalTrialsDetailsAgent: fetching NCT02023463
+2026-02-21 21:58:56,270 - INFO - Fetched study text: 11230 chars
+2026-02-21 21:58:56,270 - INFO - ClinicalTrialsDetailsAgent: fetching NCT02294461
+2026-02-21 21:58:56,376 - INFO - Fetched study text: 177096 chars
+2026-02-21 21:58:56,377 - INFO - ClinicalTrialsDetailsAgent: fetching NCT00974311
+2026-02-21 21:58:56,496 - INFO - Fetched study text: 246106 chars
+2026-02-21 21:58:56,503 - INFO - ClinicalTrialsDetailsAgent: fetching NCT02288247
+2026-02-21 21:58:56,625 - INFO - Fetched study text: 236752 chars
+2026-02-21 21:58:56,625 - INFO - PubMedAgent: keyword search with 3 queries
+2026-02-21 21:58:58,022 - INFO - Combined corpus: 861066 chars
+2026-02-21 21:58:58,022 - INFO - ExtractionAgent: extracting metrics via LLM (json_schema mode)
+2026-02-21 21:58:58 | ERROR    | scorecard.run_all | multi_agentic FAILED: 401 Client Error: Unauthorized for url: https://openrouter.ai/api/v1/chat/completions
+2026-02-21 21:58:58,155 - ERROR - multi_agentic FAILED: 401 Client Error: Unauthorized for url: https://openrouter.ai/api/v1/chat/completions
+2026-02-21 21:58:58 | ERROR    | scorecard.run_all | Traceback (most recent call last):
+  File "run_all.py", line 52, in run_approach
+    run_multi()
+  File "C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\src\multi_agentic_scorecard.py", line 538, in main
+    md = gen.generate_all(TRIAL_NAMES)
+  File "C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\src\multi_agentic_scorecard.py", line 520, in generate_all
+    md_table = self.process_trial(t)
+  File "C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\src\multi_agentic_scorecard.py", line 506, in process_trial
+    metrics = self.extractor.extract_metrics(text)
+  File "C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\src\multi_agentic_scorecard.py", line 287, in extract_metrics
+    resp = self.llm.generate(prompt, json_schema=EXTRACTION_SCHEMA)
+  File "C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\src\llm_client.py", line 164, in generate
+    raise e
+  File "C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\src\llm_client.py", line 143, in generate
+    resp.raise_for_status()
+  File "C:\Users\fuchs\DOCUMENTS\GitHub\MULTI-AGENTIC-SCORECARD-CREATION\.VENV\lib\site-packages\requests\models.py", line 1024, in raise_for_status
+    raise HTTPError(http_error_msg, response=self)
+requests.exceptions.HTTPError: 401 Client Error: Unauthorized for url: https://openrouter.ai/api/v1/chat/completions
+
+2026-02-21 21:58:58,155 - ERROR - Traceback (most recent call last):
+  File "run_all.py", line 52, in run_approach
+    run_multi()
+  File "C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\src\multi_agentic_scorecard.py", line 538, in main
+    md = gen.generate_all(TRIAL_NAMES)
+  File "C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\src\multi_agentic_scorecard.py", line 520, in generate_all
+    md_table = self.process_trial(t)
+  File "C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\src\multi_agentic_scorecard.py", line 506, in process_trial
+    metrics = self.extractor.extract_metrics(text)
+  File "C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\src\multi_agentic_scorecard.py", line 287, in extract_metrics
+    resp = self.llm.generate(prompt, json_schema=EXTRACTION_SCHEMA)
+  File "C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\src\llm_client.py", line 164, in generate
+    raise e
+  File "C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\src\llm_client.py", line 143, in generate
+    resp.raise_for_status()
+  File "C:\Users\fuchs\DOCUMENTS\GitHub\MULTI-AGENTIC-SCORECARD-CREATION\.VENV\lib\site-packages\requests\models.py", line 1024, in raise_for_status
+    raise HTTPError(http_error_msg, response=self)
+requests.exceptions.HTTPError: 401 Client Error: Unauthorized for url: https://openrouter.ai/api/v1/chat/completions
+
+2026-02-21 21:58:58 | INFO     | scorecard.run_all |   multi_agentic: error (2.9s)
+2026-02-21 21:58:58,155 - INFO -   multi_agentic: error (2.9s)
+2026-02-21 21:58:58 | INFO     | scorecard.run_all | ==================================================
+2026-02-21 21:58:58,155 - INFO - ==================================================
+2026-02-21 21:58:58 | INFO     | scorecard.run_all | Starting: rag_llm
+2026-02-21 21:58:58,155 - INFO - Starting: rag_llm
+2026-02-21 21:58:58 | INFO     | scorecard.run_all | ==================================================
+2026-02-21 21:58:58,155 - INFO - ==================================================
+2026-02-21 21:58:58 | ERROR    | scorecard.run_all | rag_llm FAILED: No module named 'pydantic.config'
+2026-02-21 21:58:58,772 - ERROR - rag_llm FAILED: No module named 'pydantic.config'
+2026-02-21 21:58:58 | ERROR    | scorecard.run_all | Traceback (most recent call last):
+  File "run_all.py", line 54, in run_approach
+    from rag_llm_scorecard import main as run_rag
+  File "C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\src\rag_llm_scorecard.py", line 27, in <module>
+    import lancedb
+  File "C:\Users\fuchs\DOCUMENTS\GitHub\MULTI-AGENTIC-SCORECARD-CREATION\.VENV\lib\site-packages\lancedb\__init__.py", line 24, in <module>
+    from .db import AsyncConnection, DBConnection, LanceDBConnection
+  File "C:\Users\fuchs\DOCUMENTS\GitHub\MULTI-AGENTIC-SCORECARD-CREATION\.VENV\lib\site-packages\lancedb\db.py", line 30, in <module>
+    from .pydantic import LanceModel
+  File "C:\Users\fuchs\DOCUMENTS\GitHub\MULTI-AGENTIC-SCORECARD-CREATION\.VENV\lib\site-packages\lancedb\pydantic.py", line 294, in <module>
+    class LanceModel(pydantic.BaseModel):
+  File "C:\Users\fuchs\DOCUMENTS\GitHub\MULTI-AGENTIC-SCORECARD-CREATION\.VENV\lib\site-packages\pydantic\__init__.py", line 421, in __getattr__
+    module = import_module(module_name, package=package)
+  File "C:\Users\fuchs\AppData\Local\Programs\PythonCodingPack\lib\importlib\__init__.py", line 127, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+  File "C:\Users\fuchs\DOCUMENTS\GitHub\MULTI-AGENTIC-SCORECARD-CREATION\.VENV\lib\site-packages\pydantic\main.py", line 34, in <module>
+    from ._internal import (
+  File "C:\Users\fuchs\DOCUMENTS\GitHub\MULTI-AGENTIC-SCORECARD-CREATION\.VENV\lib\site-packages\pydantic\_internal\_config.py", line 20, in <module>
+    from ..config import ConfigDict, ExtraValues, JsonDict, JsonEncoder, JsonSchemaExtraCallable
+ModuleNotFoundError: No module named 'pydantic.config'
+
+2026-02-21 21:58:58,772 - ERROR - Traceback (most recent call last):
+  File "run_all.py", line 54, in run_approach
+    from rag_llm_scorecard import main as run_rag
+  File "C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\src\rag_llm_scorecard.py", line 27, in <module>
+    import lancedb
+  File "C:\Users\fuchs\DOCUMENTS\GitHub\MULTI-AGENTIC-SCORECARD-CREATION\.VENV\lib\site-packages\lancedb\__init__.py", line 24, in <module>
+    from .db import AsyncConnection, DBConnection, LanceDBConnection
+  File "C:\Users\fuchs\DOCUMENTS\GitHub\MULTI-AGENTIC-SCORECARD-CREATION\.VENV\lib\site-packages\lancedb\db.py", line 30, in <module>
+    from .pydantic import LanceModel
+  File "C:\Users\fuchs\DOCUMENTS\GitHub\MULTI-AGENTIC-SCORECARD-CREATION\.VENV\lib\site-packages\lancedb\pydantic.py", line 294, in <module>
+    class LanceModel(pydantic.BaseModel):
+  File "C:\Users\fuchs\DOCUMENTS\GitHub\MULTI-AGENTIC-SCORECARD-CREATION\.VENV\lib\site-packages\pydantic\__init__.py", line 421, in __getattr__
+    module = import_module(module_name, package=package)
+  File "C:\Users\fuchs\AppData\Local\Programs\PythonCodingPack\lib\importlib\__init__.py", line 127, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+  File "C:\Users\fuchs\DOCUMENTS\GitHub\MULTI-AGENTIC-SCORECARD-CREATION\.VENV\lib\site-packages\pydantic\main.py", line 34, in <module>
+    from ._internal import (
+  File "C:\Users\fuchs\DOCUMENTS\GitHub\MULTI-AGENTIC-SCORECARD-CREATION\.VENV\lib\site-packages\pydantic\_internal\_config.py", line 20, in <module>
+    from ..config import ConfigDict, ExtraValues, JsonDict, JsonEncoder, JsonSchemaExtraCallable
+ModuleNotFoundError: No module named 'pydantic.config'
+
+2026-02-21 21:58:58 | INFO     | scorecard.run_all |   rag_llm: error (0.6s)
+2026-02-21 21:58:58,772 - INFO -   rag_llm: error (0.6s)
+2026-02-21 21:58:58 | INFO     | scorecard.run_all | ==================================================
+2026-02-21 21:58:58,772 - INFO - ==================================================
+2026-02-21 21:58:58 | INFO     | scorecard.run_all | Starting: Evaluation Pipeline
+2026-02-21 21:58:58,772 - INFO - Starting: Evaluation Pipeline
+2026-02-21 21:58:58 | INFO     | scorecard.run_all | ==================================================
+2026-02-21 21:58:58,772 - INFO - ==================================================
+2026-02-21 21:58:58 | ERROR    | scorecard.run_all | Evaluation FAILED: unsupported operand type(s) for |: 'type' and 'NoneType'
+2026-02-21 21:58:58,788 - ERROR - Evaluation FAILED: unsupported operand type(s) for |: 'type' and 'NoneType'
+2026-02-21 21:58:58 | ERROR    | scorecard.run_all | Traceback (most recent call last):
+  File "run_all.py", line 90, in run_evaluation
+    from evaluate import main as run_eval
+  File "C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\src\evaluate.py", line 46, in <module>
+    def find_csv_for_trial(approach_dir: Path, trial_name: str) -> Path | None:
+TypeError: unsupported operand type(s) for |: 'type' and 'NoneType'
+
+2026-02-21 21:58:58,788 - ERROR - Traceback (most recent call last):
+  File "run_all.py", line 90, in run_evaluation
+    from evaluate import main as run_eval
+  File "C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\src\evaluate.py", line 46, in <module>
+    def find_csv_for_trial(approach_dir: Path, trial_name: str) -> Path | None:
+TypeError: unsupported operand type(s) for |: 'type' and 'NoneType'
+
+2026-02-21 21:58:58 | INFO     | scorecard.run_all | 
+2026-02-21 21:58:58,788 - INFO - 
+2026-02-21 21:58:58 | INFO     | scorecard.run_all | ============================================================
+2026-02-21 21:58:58,788 - INFO - ============================================================
+2026-02-21 21:58:58 | INFO     | scorecard.run_all |   RUN SUMMARY
+2026-02-21 21:58:58,788 - INFO -   RUN SUMMARY
+2026-02-21 21:58:58 | INFO     | scorecard.run_all | ============================================================
+2026-02-21 21:58:58,788 - INFO - ============================================================
+2026-02-21 21:58:58 | INFO     | scorecard.run_all |   Total steps: 4  |  Passed: 1  |  Failed: 3
+2026-02-21 21:58:58,788 - INFO -   Total steps: 4  |  Passed: 1  |  Failed: 3
+2026-02-21 21:58:58 | INFO     | scorecard.run_all |   Total time:  4.3s
+2026-02-21 21:58:58,788 - INFO -   Total time:  4.3s
+2026-02-21 21:58:58 | INFO     | scorecard.run_all |   Log file:    C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\logs\run_all_20260221_215854.log
+2026-02-21 21:58:58,788 - INFO -   Log file:    C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\logs\run_all_20260221_215854.log
+2026-02-21 21:58:58 | INFO     | scorecard.run_all |   ✓ single_llm: success (0.7s)
+2026-02-21 21:58:58,788 - INFO -   ✓ single_llm: success (0.7s)
+2026-02-21 21:58:58 | INFO     | scorecard.run_all |   ✗ multi_agentic: error (2.9s) — HTTPError: 401 Client Error: Unauthorized for url: https://openrouter.ai/api/v1/chat/completions
+2026-02-21 21:58:58,788 - INFO -   ✗ multi_agentic: error (2.9s) — HTTPError: 401 Client Error: Unauthorized for url: https://openrouter.ai/api/v1/chat/completions
+2026-02-21 21:58:58 | INFO     | scorecard.run_all |   ✗ rag_llm: error (0.6s) — ModuleNotFoundError: No module named 'pydantic.config'
+2026-02-21 21:58:58,788 - INFO -   ✗ rag_llm: error (0.6s) — ModuleNotFoundError: No module named 'pydantic.config'
+2026-02-21 21:58:58 | INFO     | scorecard.run_all |   ✗ evaluation: error (0.0s) — TypeError: unsupported operand type(s) for |: 'type' and 'NoneType'
+2026-02-21 21:58:58,788 - INFO -   ✗ evaluation: error (0.0s) — TypeError: unsupported operand type(s) for |: 'type' and 'NoneType'
+2026-02-21 21:58:58 | INFO     | scorecard.run_all |   Summary:     C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\logs\run_summary_20260221_215854.json
+2026-02-21 21:58:58,788 - INFO -   Summary:     C:\Users\fuchs\Documents\GitHub\multi-agentic-scorecard-creation\logs\run_summary_20260221_215854.json

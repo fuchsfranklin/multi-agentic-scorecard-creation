@@ -1,10 +1,7 @@
 Measure,Result/Score,
-Clinical Benefit Score,(1 – 0.70) * 100 * 1 = 30,30
-Toxicity Score,Slight increase in cardiac toxicity in experimental arm: –3,3
-Bonus Points,Tail of the Curve: 10 points,10
-,Palliation: 0 points,0
-,Treatment-Free Interval: 5 points,5
-,Health-related QoL: 3 points,3
-Total Bonus Points,10 + 0 + 5 + 3 = 18,18
-Net Health Benefit,Clinical Benefit (30) + Toxicity (–3) + Bonus Points (18) = 45,45
-Cost (Total Course),"$120,000 total course","$120,000"
+Clinical Benefit Score,HR = 0.48 → (1 - 0.48) × 100 = 52.0,52.0
+Toxicity Score,24% / 19% - 1 = 0.26 → 0.26 × -20 = -5.2,-5.2
+Bonus Points,"Tail of the Curve: 20, Palliation: 0, TFI: 0, QoL: 0",0
+Total Bonus Points,20,20
+Net Health Benefit,52.0 + (-5.2) + 20 = 66.8,66.8
+Cost (Drug Acquisition),"$54,200","$54,200"

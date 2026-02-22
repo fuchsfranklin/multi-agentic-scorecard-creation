@@ -20,6 +20,7 @@ import threading
 import requests
 
 import config
+from typing import Optional, Dict
 
 API_KEY = config.OPENROUTER_API_KEY
 API_HOST = config.OPENROUTER_API_HOST
@@ -63,7 +64,7 @@ def _save_usage(usage):
 class LLMClient:
     """OpenRouter chat-completions client with rate limiting and retries."""
 
-    def __init__(self, model: str | None = None):
+    def __init__(self, model: Optional[str] = None):
         self.model = model or config.PRIMARY_MODEL
         self.url = f"{API_HOST}/chat/completions"
 
@@ -74,7 +75,7 @@ class LLMClient:
         temperature: float = 0.0,
         max_retries: int = 3,
         expect_json: bool = False,
-        json_schema: dict | None = None,
+        json_schema: Optional[Dict] = None,
     ) -> str:
         """Send a single-turn prompt and return the assistant's text response.
 
