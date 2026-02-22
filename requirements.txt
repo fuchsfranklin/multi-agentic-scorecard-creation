@@ -2,6 +2,7 @@ requests
 sentence-transformers
 lancedb
 pyarrow
+tantivy
 openai
 python-dotenv
 beautifulsoup4

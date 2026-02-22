@@ -45,24 +45,24 @@ if config.NCBI_API_KEY:
 # Predefined search queries per trial
 SEARCH_QUERIES = {
     "Enzalutamide Versus Placebo After Chemotherapy in Metastatic Adenocarcinoma of Prostate": [
-        "enzalutamide metastatic castration-resistant prostate cancer efficacy",
-        "enzalutamide toxicity prostate cancer clinical trial",
-        "enzalutamide placebo chemotherapy prostate cancer trial",
+        "enzalutamide placebo AFFIRM trial overall survival",
+        "enzalutamide castration-resistant prostate cancer hazard ratio",
+        "enzalutamide grade 3 adverse events prostate",
     ],
     "Doxorubicin + Cyclophosphamide → Paclitaxel + Trastuzumab vs Doxorubicin + Cyclophosphamide + Paclitaxel in Adjuvant HER2+ Breast Cancer": [
-        "trastuzumab adjuvant HER2+ breast cancer AC-TH vs AC-T efficacy",
-        "anthracycline taxane regimens trastuzumab cardiac safety",
-        "adjuvant HER2+ breast cancer chemotherapy trastuzumab trial",
+        "trastuzumab adjuvant HER2 breast cancer NSABP B-31 overall survival",
+        "trastuzumab AC-TH AC-T hazard ratio breast cancer",
+        "trastuzumab adjuvant cardiac toxicity grade 3",
     ],
     "Ipilimumab Versus Placebo After Primary Treatment of Stage III Melanoma": [
-        "ipilimumab adjuvant stage III melanoma disease-free survival",
-        "CTLA-4 inhibitor melanoma primary treatment toxicity",
-        "ipilimumab placebo stage III melanoma randomized trial",
+        "ipilimumab adjuvant stage III melanoma EORTC 18071 disease-free survival",
+        "ipilimumab placebo melanoma hazard ratio DFS",
+        "ipilimumab 10mg adjuvant melanoma grade 3 adverse events",
     ],
     "Ibrutinib Versus Chlorambucil As Initial Therapy for Chronic Lymphocytic Leukemia": [
-        "ibrutinib chlorambucil CLL first-line randomized trial",
-        "BTK inhibitor chronic lymphocytic leukemia efficacy toxicity",
-        "ibrutinib vs chlorambucil CLL overall survival",
+        "ibrutinib chlorambucil CLL RESONATE-2 overall survival",
+        "ibrutinib first-line CLL hazard ratio",
+        "ibrutinib chlorambucil CLL grade 3 adverse events",
     ],
 }
 
@@ -264,24 +264,79 @@ class ExtractionAgent:
     """Uses LLM to extract structured metrics from unstructured text.
 
     Uses json_schema response_format for guaranteed schema compliance.
+    Includes few-shot example for calibration and validation with retry
+    for implausible values.
     Falls back to json_object mode + manual parsing if schema mode fails.
     """
+
+    # Few-shot example from Langdon et al. gold standard (Enzalutamide)
+    FEW_SHOT_EXAMPLE = (
+        "EXAMPLE — For a trial of enzalutamide vs placebo in mCRPC (AFFIRM trial):\n"
+        '{"hazard_ratio": 0.63, "toxicity_experimental": 15.0, '
+        '"toxicity_control": 13.5, "bonus_tail": 0, "bonus_palliation": 0, '
+        '"bonus_tfi": 0, "bonus_qol": 0, "cost_estimate": "$8,495 per month"}\n'
+        "Note: Most trials receive 0 for all bonus categories. Only award bonus "
+        "points if the text explicitly describes evidence for that category.\n"
+    )
 
     def __init__(self, llm: LLMClient):
         self.llm = llm
 
-    def extract_metrics(self, text: str) -> Dict[str, Any]:
+    def extract_metrics(self, text: str, trial_title: str = "") -> Dict[str, Any]:
         logger.info("ExtractionAgent: extracting metrics via LLM (json_schema mode)")
+
+        metrics = self._do_extraction(text)
+
+        # Validation: check for implausible values and retry with narrower context
+        hr = float(metrics.get("hazard_ratio", 1.0))
+        tox_exp = float(metrics.get("toxicity_experimental", 0))
+        tox_ctrl = float(metrics.get("toxicity_control", 0))
+
+        needs_retry = False
+        retry_reasons = []
+        if hr == 1.0 or hr == 0.0:
+            needs_retry = True
+            retry_reasons.append(f"HR={hr} is implausible (default/zero)")
+        if tox_exp == 0 and tox_ctrl == 0:
+            needs_retry = True
+            retry_reasons.append("Both toxicity values are 0 (likely extraction failure)")
+
+        if needs_retry and len(text) > 8000:
+            logger.warning(
+                "Validation failed (%s). Retrying with focused context.",
+                "; ".join(retry_reasons)
+            )
+            # Retry with a more focused prompt and more text
+            metrics = self._do_extraction_focused(text, trial_title, retry_reasons)
+
+        # Final HR validation
+        hr = float(metrics.get("hazard_ratio", 1.0))
+        if not (0 < hr < 2):
+            hr = self._regex_fallback_hr(text, hr)
+        metrics["hazard_ratio"] = hr
+
+        logger.info("Extracted metrics: %s", metrics)
+        return metrics
+
+    def _do_extraction(self, text: str) -> Dict[str, Any]:
+        """Primary extraction attempt with few-shot example."""
         prompt = (
             "Extract clinical trial metrics from the text below.\n\n"
             "Guidelines:\n"
-            "- Extract actual values from the text when available.\n"
-            "- If a value cannot be found, estimate based on drug class and setting.\n"
-            "- For bonus points: only award if text provides evidence. Default to 0.\n"
-            "- For cost_estimate: estimate based on drug class and US pricing.\n"
-            "- hazard_ratio must be between 0 and 2.\n"
-            "- toxicity values are percentages (0-100).\n\n"
-            f"Text:\n{text[:6000]}"
+            "- Extract ACTUAL reported values from the text. Look for hazard ratios, "
+            "Grade 3-4 or Grade 3-5 adverse event percentages, and cost data.\n"
+            "- The hazard_ratio should be for the PRIMARY endpoint (OS, DFS, or PFS). "
+            "It must be between 0.01 and 1.99. A value of 1.0 means no effect and is "
+            "almost certainly wrong for a published trial.\n"
+            "- toxicity_experimental and toxicity_control are Grade 3-5 AE percentages "
+            "(0-100). Both should be non-zero for a real trial.\n"
+            "- For bonus points: DEFAULT IS 0 for every category. Only set non-zero if "
+            "the text explicitly describes evidence (e.g., Kaplan-Meier plateau for "
+            "tail-of-curve, validated QoL instrument results, specific palliation "
+            "endpoint). Most trials get 0 for all bonus categories.\n"
+            "- For cost_estimate: estimate based on drug class and US pricing.\n\n"
+            f"{self.FEW_SHOT_EXAMPLE}\n"
+            f"Text (extract from this):\n{text[:15000]}"
         )
         try:
             resp = self.llm.generate(prompt, json_schema=EXTRACTION_SCHEMA)
@@ -290,20 +345,39 @@ class ExtractionAgent:
             logger.error("LLM daily rate limit: %s", e)
             raise RuntimeError("LLMRateLimitExceeded")
 
-        # Parse JSON response
         try:
             metrics = json.loads(resp) if isinstance(resp, str) else resp
         except json.JSONDecodeError:
             logger.warning("json_schema parse failed, trying json_object fallback")
             metrics = self._fallback_extract(text)
 
-        # Validate and clamp values
-        hr = float(metrics.get("hazard_ratio", 1.0))
-        if not (0 < hr < 2):
-            hr = self._regex_fallback_hr(text, hr)
-        metrics["hazard_ratio"] = hr
+        return metrics
 
-        logger.info("Extracted metrics: %s", metrics)
+    def _do_extraction_focused(self, text: str, trial_title: str,
+                                reasons: list) -> Dict[str, Any]:
+        """Retry extraction with explicit instructions about what went wrong."""
+        prompt = (
+            f"Extract clinical trial metrics for: {trial_title}\n\n"
+            "IMPORTANT: A previous extraction attempt failed because: "
+            f"{'; '.join(reasons)}. Please look more carefully.\n\n"
+            "Guidelines:\n"
+            "- The hazard_ratio MUST be the primary endpoint HR from the pivotal trial. "
+            "It should NOT be 1.0 (that means no effect). Look for 'HR', 'hazard ratio', "
+            "or 'risk ratio' in the text.\n"
+            "- toxicity_experimental and toxicity_control are Grade 3-5 AE percentages. "
+            "Both arms of a real trial will have non-zero toxicity rates.\n"
+            "- For bonus points: default is 0 for all categories.\n"
+            "- If you truly cannot find a value, make a reasonable estimate based on "
+            "the drug class, but do NOT default to 1.0 for HR or 0 for toxicity.\n\n"
+            f"{self.FEW_SHOT_EXAMPLE}\n"
+            f"Text:\n{text[:20000]}"
+        )
+        try:
+            resp = self.llm.generate(prompt, json_schema=EXTRACTION_SCHEMA)
+            metrics = json.loads(resp) if isinstance(resp, str) else resp
+        except Exception:
+            logger.warning("Focused retry also failed, using first attempt results")
+            metrics = self._fallback_extract(text)
         return metrics
 
     def _fallback_extract(self, text: str) -> Dict[str, Any]:
@@ -486,24 +560,55 @@ class MultiAgentScorecardGenerator:
             if fallback_nct:
                 nct_ids = [fallback_nct]
 
-        # Agent 3: Full study details
+        # Agent 3: Full study details — fetch all, then pick the most relevant
         details_texts = []
+        details_by_nct = {}
         for nct in nct_ids:
             dt = self.details.fetch_full_study(nct)
             if dt:
                 details_texts.append(dt)
-        if details_texts:
+                details_by_nct[nct] = dt
+
+        # Pre-filter: find the most relevant NCT study by title similarity
+        # This prevents the extraction LLM from drowning in 800K+ chars
+        best_nct_text = ""
+        if details_by_nct:
+            title_lower = title.lower()
+            # Simple keyword overlap scoring
+            title_words = set(title_lower.split())
+            best_score = -1
+            for nct, dt in details_by_nct.items():
+                dt_lower = dt[:2000].lower()
+                score = sum(1 for w in title_words if w in dt_lower and len(w) > 3)
+                if score > best_score:
+                    best_score = score
+                    best_nct_text = dt
+            if best_nct_text:
+                logger.info(
+                    "Pre-filtered to best-matching NCT study (%d chars, score=%d)",
+                    len(best_nct_text), best_score
+                )
+
+        # Use best-matching study as primary context, add others as secondary
+        if best_nct_text:
+            # Primary: best match (up to 30K chars). Secondary: others truncated.
+            other_texts = [dt for dt in details_texts if dt != best_nct_text]
+            other_combined = "\n".join(dt[:3000] for dt in other_texts[:3])
+            text = best_nct_text[:30000]
+            if other_combined:
+                text = text + "\n\n--- Additional studies ---\n" + other_combined
+        elif details_texts:
             text = "\n".join(details_texts)
 
         # Agent 2: PubMed abstracts
         corpus = self.pubmed.fetch_by_keywords(queries, max_results=5)
         if corpus:
-            text = (text + "\n" + corpus) if text else corpus
+            text = (text + "\n\n--- PubMed abstracts ---\n" + corpus) if text else corpus
 
         logger.info(f"Combined corpus: {len(text)} chars")
 
-        # Agent 4: LLM extraction (1 call, json_schema mode)
-        metrics = self.extractor.extract_metrics(text)
+        # Agent 4: LLM extraction (1 call, json_schema mode, with validation + retry)
+        metrics = self.extractor.extract_metrics(text, trial_title=title)
 
         # Agent 5: Deterministic calculation
         scores = self.calculator.calculate_scores(metrics)

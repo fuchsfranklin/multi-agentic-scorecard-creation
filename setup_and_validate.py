@@ -3,14 +3,15 @@
 Pre-flight validation for running the scorecard project on a new machine.
 
 Checks:
-  1. Python version (3.11+)
+  1. Python version (3.10+)
   2. All pip dependencies installed
   3. .env file exists with required keys
   4. OpenRouter API key is valid (quick auth check, no cost)
   5. External APIs reachable (ClinicalTrials.gov, PubMed)
   6. sentence-transformers model downloadable
   7. LanceDB functional
-  8. Output directories writable
+  8. Tantivy installed (for hybrid search)
+  9. Output directories writable
 
 Run this FIRST on any new machine before running the actual scripts.
 
@@ -23,7 +24,7 @@ import importlib
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent
-REQUIRED_PYTHON = (3, 11)
+REQUIRED_PYTHON = (3, 10)
 
 checks_passed = 0
 checks_failed = 0
@@ -192,7 +193,7 @@ except Exception as e:
 # ---------------------------------------------------------------
 # 7. LanceDB
 # ---------------------------------------------------------------
-print("\n[7/8] LanceDB...")
+print("\n[7/9] LanceDB...")
 try:
     import lancedb
     import pyarrow as pa
@@ -214,9 +215,20 @@ except Exception as e:
     fail(f"LanceDB: {e}")
 
 # ---------------------------------------------------------------
-# 8. Output directories
+# 8. Tantivy (for hybrid search in RAG pipeline)
 # ---------------------------------------------------------------
-print("\n[8/8] Output directories...")
+print("\n[8/9] Tantivy (hybrid search)...")
+try:
+    import tantivy  # noqa: F401
+    ok("tantivy installed — LanceDB hybrid search (vector + BM25) will work")
+except ImportError:
+    warn("tantivy not installed — RAG pipeline will fall back to vector-only search")
+    print("       Fix: pip install tantivy")
+
+# ---------------------------------------------------------------
+# 9. Output directories
+# ---------------------------------------------------------------
+print("\n[9/9] Output directories...")
 dirs_to_check = [
     PROJECT_ROOT / "results" / "single_llm",
     PROJECT_ROOT / "results" / "multi_agentic",

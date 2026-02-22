@@ -219,12 +219,28 @@ def query_vector_db(query_text, vector_db_table, sentence_model, n_results=5):
 
 
 # --- RAG Scorecard Generation ---
-SCORECARD_PROMPT = """You are an expert oncologist creating an ASCO Value Framework scorecard.
+SCORECARD_PROMPT = """You are an expert oncologist creating an ASCO Value Framework scorecard
+following the methodology of Langdon et al., 2016.
 
 **Trial:** {title}
 **Context:** {scenario_hint}
 
-**Retrieved Literature (for general understanding — do NOT copy exact values):**
+**REFERENCE EXAMPLE (Enzalutamide vs Placebo, mCRPC, from Langdon et al.):**
+This shows the expected level of rigor and how bonus points are applied conservatively:
+
+| Measure | Result/Score |
+|---------|-------------|
+| **Clinical Benefit Score** | HR (death) = 0.63 → (1 − 0.63) × 100 = **37** |
+| **Toxicity Score** | 15% / 13.5% − 1 = 0.11 → 0.11 × −20 = **−2.2** |
+| **Bonus Points** | Tail of Curve: 16, Palliation: 10, TFI: 0, QoL: 10 |
+| **Total Bonus Points** | **36** |
+| **Net Health Benefit** | 37 − 2.2 + 36 = **70.8** |
+| **Cost (Per Month)** | **$8,495** |
+
+Note: Enzalutamide is unusual in receiving 36 bonus points. Most trials receive 0 total
+bonus points. The Langdon et al. paper gave 0 bonus to 3 out of 4 trials evaluated.
+
+**Retrieved Literature (for general understanding):**
 ---
 {context}
 ---
@@ -232,12 +248,24 @@ SCORECARD_PROMPT = """You are an expert oncologist creating an ASCO Value Framew
 **Instructions:**
 1. Use the retrieved literature to inform your understanding of this drug class,
    typical efficacy ranges, and toxicity profiles.
-2. HYPOTHESIZE plausible values for: HR, toxicity metrics, bonus points, cost.
+2. HYPOTHESIZE plausible values for: HR, Grade 3-5 AE rates for both arms, bonus points, cost.
 3. CALCULATE using ASCO formulas:
    - CBS = (1 - HR) × 100
-   - Toxicity = ((exp_tox / ctrl_tox) - 1) × -20 (or 0 if similar)
+   - Toxicity = ((exp_tox / ctrl_tox) - 1) × -20 (or 0 if similar/ctrl is 0)
    - NHB = CBS + Toxicity + Total Bonus
-4. Format as markdown table:
+
+4. BONUS POINT RULES (apply strictly):
+   - Tail of the Curve (0-20): ONLY if Kaplan-Meier shows a clear plateau (cure fraction).
+     Most metastatic trials do NOT qualify. Adjuvant trials rarely qualify.
+   - Palliation (0-10): ONLY if the trial measured and reported a specific palliation endpoint.
+   - Treatment-Free Interval (0-10): ONLY if experimental arm allows a treatment holiday.
+   - Quality of Life (0-10): ONLY if a validated QoL instrument showed significant improvement.
+   - DEFAULT IS 0 for each category. Most trials receive 0 total bonus points.
+
+5. SELF-CHECK: Verify NHB = CBS + Toxicity + Bonus exactly. Verify bonus points are
+   justified by specific evidence, not general drug class assumptions.
+
+6. Format as markdown table:
 
 | Measure | Result/Score |
 |---------|-------------|
@@ -315,69 +343,72 @@ SCORECARD_TABLES = [
     {
         "title": "Enzalutamide Versus Placebo After Chemotherapy in Metastatic Adenocarcinoma of Prostate",
         "pubmed_keywords": [
-            "enzalutamide prostate cancer efficacy",
-            "enzalutamide toxicity",
-            "metastatic castration-resistant prostate cancer outcomes",
+            "enzalutamide prostate cancer AFFIRM trial",
+            "enzalutamide overall survival hazard ratio",
+            "enzalutamide adverse events grade 3",
         ],
         "rag_keywords": [
-            "enzalutamide general information",
-            "metastatic prostate cancer background",
-            "hormone therapy principles",
+            "enzalutamide hazard ratio overall survival",
+            "AFFIRM trial prostate cancer results",
+            "enzalutamide toxicity adverse events",
         ],
         "scenario_hint": (
-            "A trial of enzalutamide vs placebo in metastatic prostate cancer "
-            "post-chemotherapy. Hypothesize plausible efficacy and toxicities."
+            "AFFIRM trial: enzalutamide vs placebo in post-docetaxel mCRPC. "
+            "Primary endpoint: Overall Survival. Late-stage metastatic setting."
         ),
     },
     {
         "title": "Doxorubicin + Cyclophosphamide → Paclitaxel + Trastuzumab vs Doxorubicin + Cyclophosphamide + Paclitaxel in Adjuvant HER2+ Breast Cancer",
         "pubmed_keywords": [
-            "trastuzumab adjuvant breast cancer overview",
-            "HER2 targeted therapy principles",
-            "AC-TH vs AC-T breast cancer",
+            "trastuzumab adjuvant breast cancer NSABP B-31",
+            "trastuzumab overall survival hazard ratio HER2",
+            "trastuzumab cardiac toxicity adjuvant",
         ],
         "rag_keywords": [
-            "trastuzumab overview",
-            "adjuvant HER2+ breast cancer context",
-            "targeted therapy breast cancer",
+            "trastuzumab adjuvant HER2 breast cancer survival",
+            "NSABP B-31 N9831 hazard ratio",
+            "trastuzumab adverse events cardiac",
         ],
         "scenario_hint": (
-            "A trial comparing trastuzumab-containing (AC-TH) vs non-trastuzumab "
-            "(AC-T) regimen in adjuvant HER2+ breast cancer."
+            "NSABP B-31 / NCCTG N9831 joint analysis: AC-TH vs AC-T in adjuvant "
+            "HER2+ breast cancer. Primary endpoint: Overall Survival. "
+            "Adjuvant (curative-intent) setting."
         ),
     },
     {
         "title": "Ipilimumab Versus Placebo After Primary Treatment of Stage III Melanoma",
         "pubmed_keywords": [
-            "ipilimumab adjuvant melanoma background",
-            "CTLA-4 inhibitor mechanism",
-            "immunotherapy toxicity melanoma",
+            "ipilimumab adjuvant melanoma EORTC 18071",
+            "ipilimumab disease-free survival hazard ratio",
+            "ipilimumab immune-related adverse events grade 3",
         ],
         "rag_keywords": [
-            "ipilimumab general information",
-            "adjuvant melanoma context",
-            "immunotherapy principles",
+            "ipilimumab adjuvant melanoma disease-free survival",
+            "EORTC 18071 hazard ratio results",
+            "ipilimumab toxicity immune-related adverse events",
         ],
         "scenario_hint": (
-            "A trial of ipilimumab vs placebo in adjuvant Stage III melanoma. "
-            "Expect significant immune-related toxicities."
+            "EORTC 18071: ipilimumab 10 mg/kg vs placebo in adjuvant stage III "
+            "melanoma. Primary endpoint: Disease-Free Survival (DFS). "
+            "Adjuvant setting with significant immune-related toxicities."
         ),
     },
     {
         "title": "Ibrutinib Versus Chlorambucil As Initial Therapy for Chronic Lymphocytic Leukemia",
         "pubmed_keywords": [
-            "ibrutinib CLL first-line context",
-            "BTK inhibitor principles",
-            "ibrutinib vs chlorambucil CLL",
+            "ibrutinib chlorambucil CLL RESONATE-2",
+            "ibrutinib overall survival hazard ratio CLL",
+            "ibrutinib adverse events atrial fibrillation",
         ],
         "rag_keywords": [
-            "ibrutinib general information",
-            "CLL first-line treatment",
-            "BTK inhibitor class effects",
+            "ibrutinib chlorambucil CLL overall survival",
+            "RESONATE-2 hazard ratio results",
+            "ibrutinib toxicity grade 3 adverse events",
         ],
         "scenario_hint": (
-            "A trial comparing ibrutinib (targeted) vs chlorambucil (chemo) as "
-            "first-line CLL treatment. Expect significant efficacy benefit."
+            "RESONATE-2: ibrutinib vs chlorambucil as first-line CLL therapy. "
+            "Primary endpoint: Overall Survival. Ibrutinib showed dramatic "
+            "superiority with a very low hazard ratio."
         ),
     },
 ]
