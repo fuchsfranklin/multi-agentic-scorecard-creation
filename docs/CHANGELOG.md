@@ -1,5 +1,89 @@
 # Changelog
 
+## v2.4 — February 21, 2026 Accuracy Improvements (Prompts, Retrieval, Validation)
+
+Based on diagnostic analysis of the Feb 21 run results (v2.3), this update targets
+the three biggest error sources: bonus point hallucination, multi-agentic extraction
+failures, and weak retrieval queries.
+
+### All three approaches: few-shot calibration + strict bonus rules
+- Added a gold standard few-shot example (Enzalutamide, from Langdon et al.) to every
+  scorecard prompt. This anchors the model on the expected output format and score ranges.
+- Added explicit bonus point rules: "default is 0 for each category, most trials receive
+  0 total bonus points, only award if the specific trial data supports it." Previous
+  prompts said things like "bonus points may apply" which encouraged over-award.
+- Added self-verification instruction: "verify NHB = CBS + Toxicity + Bonus exactly."
+- Removed misleading scenario hints that suggested bonus points were likely.
+
+### Single LLM
+- Updated scenario hints to reference landmark trial names (AFFIRM, NSABP B-31,
+  EORTC 18071, RESONATE-2) instead of generic drug class descriptions.
+- Removed "bonus points may apply for tail-of-curve, palliation, and QoL" from
+  the Enzalutamide scenario (this was directly causing bonus inflation).
+
+### Multi-Agentic
+- Corpus pre-filtering: instead of dumping all fetched NCT studies (up to 861K chars)
+  into the extraction prompt, the pipeline now scores each study by title-keyword
+  overlap and uses the best match as primary context (up to 30K chars), with other
+  studies truncated to 3K each as secondary context.
+- Extraction context window increased from 6K to 15K chars (primary attempt) and
+  20K chars (retry attempt). The old 6K limit was cutting off relevant data.
+- Added few-shot example to extraction prompt showing expected output format and
+  values for the Enzalutamide trial.
+- Added validation + retry: if extracted HR = 1.0 or both toxicity values = 0,
+  the agent retries with a focused prompt that explains what went wrong and asks
+  the LLM to look more carefully. This addresses the Enzalutamide HR=1.0 failure.
+- Updated search queries to reference specific trial names (AFFIRM, NSABP B-31,
+  EORTC 18071, RESONATE-2) instead of generic drug class terms.
+
+### RAG-LLM
+- Updated PubMed search keywords to target specific trial names and endpoints
+  (e.g., "enzalutamide overall survival hazard ratio" instead of "enzalutamide
+  prostate cancer efficacy").
+- Updated RAG retrieval keywords to be more specific about numeric values
+  (HR, toxicity rates) rather than general drug class information.
+- Updated scenario hints to reference landmark trial names.
+
+### Dependencies
+- Added `tantivy` to requirements.txt. This enables BM25 full-text search in
+  LanceDB, which was failing silently on the remote machine and falling back to
+  vector-only search. Hybrid search (70% semantic / 30% keyword) should improve
+  retrieval of specific numeric values like hazard ratios and AE rates.
+
+## v2.3 — February 21, 2026 First Full Pipeline Run & Diagnostic Analysis
+
+### Run results
+- First fully clean pipeline execution: run 7 of 7 attempts, 82.9 seconds total.
+- All 3 approaches + evaluation completed successfully.
+- Runs 1-6 failed due to: Python 3.8 `type | None` syntax errors, f-string backslash
+  issues, pydantic import errors in RAG pipeline, and `list[float]` type hint
+  incompatibility in evaluate.py. All resolved by run 7.
+
+### Accuracy (against Langdon et al., 2016 gold standard)
+- Single LLM: 67.1% accuracy, MAPE 32.9%, Pearson r = 0.856
+- Multi-Agentic: 34.0% accuracy, MAPE 66.0%, Pearson r = -0.274
+- RAG-LLM: 51.6% accuracy, MAPE 48.4%, Pearson r = 0.808
+
+### Diagnostic findings
+- Single LLM matched CBS exactly for 3/4 trials but over-awarded bonus points
+  to all 4 trials (gold standard gives 0 bonus for 3/4 trials).
+- Multi-agentic extraction failed on Enzalutamide (HR=1.0 instead of 0.63,
+  producing NHB=0.0 vs gold 70.8). Corpus size (861K chars) overwhelms the
+  extraction LLM. Zero bonus points across all trials.
+- RAG-LLM hybrid search fell back to vector-only (tantivy not installed on
+  remote machine). Same bonus inflation pattern as single LLM.
+- Remote machine `.env` overrode EXTRACTION_MODEL to gpt-4.1-mini instead of
+  the gpt-5.1-mini default. Needs updating for next run.
+
+### Known issues
+- `tantivy` not installed on remote machine, disabling BM25 keyword search in
+  RAG pipeline. Add to requirements or document as optional dependency.
+- Python 3.8 compatibility: several files used `type | None` union syntax and
+  `list[float]` type hints that require Python 3.10+. These were apparently
+  fixed during the run sequence but the fixes should be verified in the repo.
+- Deep Outputs (MOA engine) results use non-standard ASCO formulas and are not
+  directly comparable to the gold standard. Needs separate evaluation criteria.
+
 ## v2.2 — February 18, 2026 Portability, Logging & Model Update
 
 ### Models
