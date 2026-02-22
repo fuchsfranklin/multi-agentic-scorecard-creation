@@ -1,48 +1,49 @@
 # LLM-Powered Oncology Scorecard Replication
 
-Based on some great discussions with my previous Pfizer colleagues [Brett South](https://www.linkedin.com/in/brett-south-phd-famia-50242349), [Jay Ronquillo](https://www.linkedin.com/in/geronimoronquillo), [Jon Mauer](https://www.linkedin.com/in/jonathan-mauer) and [Stephen Watt](https://scholar.google.com/citations?user=LXkHB_8AAAAJ&hl=en), this project aims to replicate established oncology value frameworks, such as the ISPOR Scorecard and ASCO Value Framework, using Large Language Models (LLMs). The initial goal is to validate LLM capabilities in reproducing human-derived scorecards.
+This project grew out of conversations with my former Pfizer colleagues [Brett South](https://www.linkedin.com/in/brett-south-phd-famia-50242349), [Jay Ronquillo](https://www.linkedin.com/in/geronimoronquillo), [Jon Mauer](https://www.linkedin.com/in/jonathan-mauer) and [Stephen Watt](https://scholar.google.com/citations?user=LXkHB_8AAAAJ&hl=en). We wanted to see if LLMs could reproduce established oncology value frameworks (ISPOR Scorecard, ASCO Value Framework) and how close they'd get to human-derived scores.
 
-## What This Project Does
+## What it does
 
-We benchmark three LLM-based approaches against a human-derived gold standard: the ASCO Value Framework Net Health Benefit (NHB) scores from [Langdon et al., 2016](https://ascopubs.org/doi/full/10.1200/JCO.2016.68.2518). Each approach attempts to generate ASCO-style scorecards for four landmark oncology trials, and we measure how close they get to the published values.
+We take four landmark oncology trials from [Langdon et al., 2016](https://ascopubs.org/doi/full/10.1200/JCO.2016.68.2518) and try to reproduce their ASCO Value Framework Net Health Benefit (NHB) scores using three different LLM-based approaches. Then we measure the gap.
 
 The ASCO framework scores treatments on:
-- **Clinical Benefit** — derived from Hazard Ratios (HR) for OS/DFS/PFS
-- **Toxicity** — penalty based on relative severe adverse event rates
-- **Bonus Points** — for tail-of-curve survival, palliation, QoL, treatment-free interval
-- **Net Health Benefit (NHB)** = Clinical Benefit + Toxicity + Bonus Points
+- Clinical Benefit, derived from Hazard Ratios (HR) for OS/DFS/PFS
+- Toxicity penalty based on relative severe adverse event rates
+- Bonus Points for tail-of-curve survival, palliation, QoL, treatment-free interval
+- Net Health Benefit (NHB) = Clinical Benefit + Toxicity + Bonus Points
 
-## Three Approaches
+## The three approaches
 
-| Approach | Method | Model | What It Tests |
-|----------|--------|-------|---------------|
-| **Single LLM** | Give the LLM a trial name + scenario hint. It hypothesizes all values and calculates the scorecard in a single structured prompt. | Gemini 3 Flash Preview | Baseline: what can an LLM do with zero external data? |
-| **Multi-Agentic** | Specialized agents fetch data from ClinicalTrials.gov (v2 API) and PubMed, then an LLM extracts metrics via JSON Schema structured output. A deterministic calculator applies ASCO formulas. | GPT-5.1-mini (extraction) | Can structured data retrieval + extraction improve accuracy? |
-| **RAG-LLM** | Fetch PubMed abstracts, embed with all-mpnet-base-v2, store in LanceDB, retrieve via hybrid search (vector + BM25), then prompt the LLM with context. | Gemini 3 Flash Preview | Does retrieval-augmented generation improve grounding? |
+| Approach | How it works | Model | Question it answers |
+|----------|-------------|-------|---------------------|
+| Single LLM | One prompt per trial. The LLM hypothesizes all clinical values and calculates the scorecard with no external data. | Gemini 3 Flash Preview | How far can an LLM get on its own? |
+| Multi-Agentic | Agents pull data from ClinicalTrials.gov (v2) and PubMed. An LLM extracts metrics via JSON Schema structured output. A deterministic calculator applies ASCO formulas. | GPT-5.1-mini (extraction) | Does real data retrieval + structured extraction help? |
+| RAG-LLM | PubMed abstracts embedded with all-mpnet-base-v2, stored in LanceDB, retrieved via hybrid search (vector + BM25), then fed to the LLM as context. | Gemini 3 Flash Preview | Does RAG improve grounding over the single-LLM baseline? |
 
-## Models & Infrastructure (Feb 2026)
+## Models (Feb 2026)
 
-All LLM calls go through [OpenRouter](https://openrouter.ai/) (OpenAI-compatible API). Model choices:
+All LLM calls go through [OpenRouter](https://openrouter.ai/) (OpenAI-compatible API).
 
-| Role | Model | Cost (per 1M tokens) | Why |
-|------|-------|---------------------|-----|
-| Scorecard generation | `google/gemini-3-flash-preview` | $0.50 in / $3.00 out | Current-gen reasoning (Dec 2025), 1M context, 90.4% GPQA Diamond, 78% SWE-bench |
-| Structured extraction | `openai/gpt-5.1-mini` | $0.25 in / $2.00 out | Current-gen mini reasoning, strong structured output via json_schema |
-| Evaluation judge | `openai/gpt-5.1-mini` | $0.25 in / $2.00 out | Consistent, affordable evaluation |
+| Role | Model | Cost (per 1M tokens) | Notes |
+|------|-------|---------------------|-------|
+| Scorecard generation | `google/gemini-3-flash-preview` | $0.50 in / $3.00 out | Released Dec 2025. 1M context window. |
+| Structured extraction | `openai/gpt-5.1-mini` | $0.25 in / $2.00 out | Supports `json_schema` structured output. |
+| Evaluation judge | `openai/gpt-5.1-mini` | $0.25 in / $2.00 out | Used by deepeval GEval metrics. |
 
-Key infrastructure updates from the original version:
-- **Gemini 3 Flash Preview** — upgraded from Gemini 2.5 Flash Preview. Current-generation model with significantly better reasoning benchmarks and 30% token efficiency improvement.
-- **GPT-5.1-mini** — upgraded from GPT-4.1-mini (retired from ChatGPT Feb 13, 2026). Current-gen mini reasoning model with strong structured output support. Cheaper ($0.25/$2.00 vs $0.40/$1.60) and future-proof.
-- **JSON Schema structured outputs** — multi-agentic extraction uses `response_format=json_schema` for guaranteed schema compliance, eliminating JSON parsing failures.
-- **Single-prompt scorecard generation** — single_llm reduced from 3 chained prompts to 1 comprehensive prompt per trial, cutting LLM calls from 12 to 4 and eliminating inter-prompt value drift.
-- **ClinicalTrials.gov API v2** — the v1 API was retired June 2024. Multi-agentic pipeline fully migrated.
-- **LanceDB hybrid search** — combines vector similarity (semantic) with BM25 full-text search, reranked with LinearCombinationReranker (70% semantic / 30% keyword).
-- **all-mpnet-base-v2 embeddings** — upgraded from all-MiniLM-L6-v2 (384d → 768d). Better quality for biomedical text retrieval.
-- **deepeval GEval** — LLM-as-judge evaluation with custom DeepEvalBaseLLM wrapper for OpenRouter compatibility.
+What changed from earlier versions:
+- Moved from GPT-4.1-mini to GPT-5.1-mini for extraction and judging. GPT-4.1-mini was retired from ChatGPT on Feb 13, 2026; the API still works but we'd rather not depend on a legacy model. GPT-5.1-mini is cheaper anyway ($0.25 vs $0.40 input).
+- Moved from Gemini 2.5 Flash to Gemini 3 Flash for scorecard generation. Noticeably better at following the ASCO formula structure.
+- Multi-agentic extraction now uses `response_format=json_schema` instead of `json_object`, which guarantees the output matches our schema exactly. No more JSON parsing failures.
+- Single-LLM went from 3 chained prompts to 1 per trial (4 total instead of 12). Fewer calls, less value drift between steps.
+- ClinicalTrials.gov v1 API was retired June 2024. Multi-agentic pipeline uses v2.
+- RAG pipeline uses LanceDB hybrid search (70% semantic / 30% BM25 keyword) and all-mpnet-base-v2 embeddings (768d, up from 384d with MiniLM).
+- deepeval GEval runs through a custom `DeepEvalBaseLLM` wrapper that talks to OpenRouter via `requests` (avoids corporate SSL/proxy issues with the openai SDK).
 
-## Gold Standard (Langdon et al., 2016)
+## Gold standard (Langdon et al., 2016)
 
-### Trial 1: Enzalutamide vs Placebo — Metastatic Prostate Cancer
+These are the published reference values we're trying to match.
+
+### Enzalutamide vs Placebo, metastatic prostate cancer
 
 | Measure | Result/Score |
 |---------|-------------|
@@ -53,7 +54,7 @@ Key infrastructure updates from the original version:
 | Net Health Benefit | 37 − 2.2 + 36 = **70.8** |
 | Cost (Per Month) | **$8,495** |
 
-### Trial 2: AC-TH vs AC-T — Adjuvant HER2+ Breast Cancer
+### AC-TH vs AC-T, adjuvant HER2+ breast cancer
 
 | Measure | Result/Score |
 |---------|-------------|
@@ -63,7 +64,7 @@ Key infrastructure updates from the original version:
 | Net Health Benefit | 41 + 0 + 0 = **41** |
 | Cost (Total Course) | **$73,166** |
 
-### Trial 3: Ipilimumab vs Placebo — Stage III Melanoma
+### Ipilimumab vs Placebo, stage III melanoma
 
 | Measure | Result/Score |
 |---------|-------------|
@@ -73,7 +74,7 @@ Key infrastructure updates from the original version:
 | Net Health Benefit | 25 − 7.6 = **17.4** |
 | Cost (Total Course) | **$458,858** |
 
-### Trial 4: Ibrutinib vs Chlorambucil — CLL
+### Ibrutinib vs Chlorambucil, CLL
 
 | Measure | Result/Score |
 |---------|-------------|
@@ -83,9 +84,9 @@ Key infrastructure updates from the original version:
 | Net Health Benefit | 84 − 6.8 = **77.2** |
 | Cost (Per 4 Months) | **$35,770** |
 
-## Current Results
+## Results so far
 
-Evaluated against the gold standard NHB values using deterministic metrics (MAPE, Pearson r) and optionally [deepeval](https://github.com/confident-ai/deepeval) GEval LLM-as-judge metrics. See `results/evaluation_report.md`:
+Measured against gold standard NHB values with deterministic metrics (MAPE, Pearson r) and optionally [deepeval](https://github.com/confident-ai/deepeval) GEval. Full details in `results/evaluation_report.md`.
 
 | Approach | Accuracy (100−MAPE) | Pearson r | Status |
 |----------|--------------------:|----------:|--------|
@@ -93,22 +94,21 @@ Evaluated against the gold standard NHB values using deterministic metrics (MAPE
 | Multi-Agentic | 0.0% | −0.822 | Fixed (CT.gov v2 + JSON parsing), needs re-run |
 | RAG-LLM | 59.0% | 0.795 | Working |
 
-Results above are from the previous model (o3-mini). Re-running with the updated models (Gemini 3 Flash, GPT-5.1-mini) is expected to improve accuracy.
+These numbers are from the old o3-mini model. Re-running with Gemini 3 Flash and GPT-5.1-mini should do better.
 
-## Data Sources
+## Data sources
 
-| API | Purpose | Status |
-|-----|---------|--------|
-| [PubMed (Entrez)](https://www.ncbi.nlm.nih.gov/books/NBK25501/) | Retrieve trial abstracts with efficacy/toxicity data | Implemented |
-| [ClinicalTrials.gov v2](https://clinicaltrials.gov/data-api/api) | Discover NCT IDs and trial metadata | Implemented (migrated from retired v1) |
-| [OpenFDA](https://open.fda.gov/apis/) | Drug labeling and adverse event data | Not yet implemented |
+| API | What we use it for | Status |
+|-----|-------------------|--------|
+| [PubMed (Entrez)](https://www.ncbi.nlm.nih.gov/books/NBK25501/) | Trial abstracts with efficacy/toxicity data | Done |
+| [ClinicalTrials.gov v2](https://clinicaltrials.gov/data-api/api) | NCT IDs and trial metadata | Done (migrated from retired v1) |
+| [OpenFDA](https://open.fda.gov/apis/) | Drug labeling and adverse event data | Not yet |
 
-Cost data is not available through free public APIs and is currently hypothesized by the LLM.
+Cost data isn't available through free public APIs, so the LLM hypothesizes it.
 
 ## Setup
 
 ```bash
-# Clone and set up
 git clone <repo-url>
 cd multi-agentic-scorecard-creation
 python -m venv .venv
@@ -116,85 +116,76 @@ python -m venv .venv
 # source .venv/bin/activate  # Linux/macOS
 pip install -r requirements.txt
 
-# Configure
+# Copy and fill in your API keys
 copy .env.example .env  # Windows
 # cp .env.example .env  # Linux/macOS
-# Edit .env with your OPENROUTER_API_KEY and ENTREZ_EMAIL
 
-# Validate everything works (no LLM calls, no cost)
+# Check that everything works before spending any money
 python setup_and_validate.py
 ```
+
+You need an [OpenRouter](https://openrouter.ai/) API key. An NCBI/PubMed email is recommended (avoids rate limiting). See `.env.example` for all options.
 
 ## Running
 
 ```bash
-# RECOMMENDED: Run everything with full logging
+# Run everything with logging (recommended)
 python run_all.py                    # All 3 approaches + evaluation
-python run_all.py --with-deepeval    # Also run LLM-as-judge metrics (~$0.06 extra)
-python run_all.py --only single_llm  # Run just one approach
-python run_all.py --dry-run          # Validate setup only (no LLM calls)
+python run_all.py --with-deepeval    # Include LLM-as-judge metrics (~$0.05 extra)
+python run_all.py --only single_llm  # Just one approach
+python run_all.py --dry-run          # Setup check only, no LLM calls
 
-# Or run individual approaches directly
-python src/single_llm_scorecard.py      # 4 LLM calls (1 prompt × 4 trials)
-python src/multi_agentic_scorecard.py   # 4 LLM calls (1 extraction × 4 trials)
-python src/rag_llm_scorecard.py         # 4 LLM calls (1 prompt × 4 trials)
-
-# Evaluate all approaches against gold standard (deterministic metrics — free)
+# Or run scripts individually
+python src/single_llm_scorecard.py
+python src/multi_agentic_scorecard.py
+python src/rag_llm_scorecard.py
 python src/evaluate.py
-
-# Include LLM-as-judge metrics via deepeval (36 LLM calls)
 python src/evaluate.py --with-deepeval
 ```
 
-Results are written to `results/{approach}/` as both markdown and CSV files.
+Output goes to `results/{approach}/` as CSV + markdown files.
 
-## Logging & Debugging
+## Logging
 
-All runs via `run_all.py` produce:
-- `logs/run_all_{timestamp}.log` — full stdout/stderr + structured logging
-- `logs/run_summary_{timestamp}.json` — machine-readable status, timing, errors, config used
+`run_all.py` writes two files per run into `logs/`:
+- `run_all_{timestamp}.log` with full stdout/stderr
+- `run_summary_{timestamp}.json` with pass/fail status, timing, errors, and which models were used
 
-When running on a remote machine, commit and push the `logs/` and `results/` directories, then pull locally to debug here. The JSON summaries make it easy to identify which step failed and why.
+Both are committed to git. If you run this on a remote machine, push the `logs/` and `results/` directories, then pull locally to debug.
 
-## LLM Call Budget
+## Cost
 
-| Script | LLM Calls | Free API Calls | Estimated Cost |
-|--------|----------:|---------------:|---------------:|
+A full run (all 3 approaches + deepeval) costs about $0.11 total.
+
+| Script | LLM Calls | Free API Calls | Cost |
+|--------|----------:|---------------:|-----:|
 | `single_llm_scorecard.py` | 4 | 0 | ~$0.02 |
 | `multi_agentic_scorecard.py` | 4 | ~30 (PubMed + CT.gov) | ~$0.01 |
 | `rag_llm_scorecard.py` | 4 | ~20 (PubMed) | ~$0.03 |
 | `evaluate.py` | 0 | 0 | Free |
 | `evaluate.py --with-deepeval` | 36 | 0 | ~$0.05 |
-| **Total (full run)** | **48** | **~50** | **~$0.11** |
 
-## Project Structure
+## Project structure
 
 ```
-├── run_all.py                     # Master orchestrator — runs everything with logging
-├── setup_and_validate.py          # Pre-flight checks for new machines (no cost)
+├── run_all.py                     # Runs everything, logs to files
+├── setup_and_validate.py          # Pre-flight checks (no cost)
 ├── src/
-│   ├── config.py                  # Centralized config (loads from .env)
-│   ├── log_setup.py               # Shared logging (file + console, timestamped)
-│   ├── llm_client.py              # OpenRouter API client with rate limiting
-│   ├── gold_standard.py           # Gold standard data (Langdon et al., 2016)
-│   ├── single_llm_scorecard.py    # Single LLM approach (Gemini 3 Flash Preview)
-│   ├── multi_agentic_scorecard.py # Multi-agentic pipeline (GPT-5.1-mini + CT.gov v2)
-│   ├── rag_llm_scorecard.py       # RAG approach (LanceDB hybrid search + Gemini 3 Flash Preview)
-│   ├── evaluate.py                # Evaluation pipeline (deterministic + deepeval GEval)
-│   └── test_apis.py               # Smoke test for external APIs (no LLM cost)
-├── results/                       # All scorecard outputs (committed to git)
-│   ├── single_llm/                # Single LLM outputs (CSV + markdown)
-│   ├── multi_agentic/             # Multi-agentic outputs
-│   ├── rag_llm/                   # RAG outputs
-│   ├── deep_outputs/              # MOA-DeepOutputs outputs
-│   └── evaluation_report.md       # Auto-generated comparison report
-├── logs/                          # Run logs (committed to git for remote debugging)
-│   ├── run_all_{timestamp}.log    # Full stdout/stderr capture
-│   └── run_summary_{timestamp}.json  # Machine-readable run status + errors
+│   ├── config.py                  # Config loader (reads .env)
+│   ├── log_setup.py               # Timestamped file + console logging
+│   ├── llm_client.py              # OpenRouter client, rate limiting, retries
+│   ├── gold_standard.py           # Reference data from Langdon et al.
+│   ├── single_llm_scorecard.py    # Single LLM approach
+│   ├── multi_agentic_scorecard.py # Multi-agentic pipeline
+│   ├── rag_llm_scorecard.py       # RAG approach
+│   ├── evaluate.py                # Evaluation (deterministic + deepeval)
+│   └── test_apis.py               # Smoke test for external APIs
+├── results/                       # Scorecard outputs (tracked in git)
+├── logs/                          # Run logs (tracked in git)
 ├── docs/
-│   ├── ISPOR_PAPER_MARKDOWN_FORMAT.md  # ASCO framework reference (Langdon et al.)
-│   ├── EVALUATION_METRICS.md           # Metric definitions
-│   └── CHANGELOG.md                    # Version history
+│   ├── ISPOR_PAPER_MARKDOWN_FORMAT.md
+│   ├── EVALUATION_METRICS.md
+│   └── CHANGELOG.md
 ├── requirements.txt
 └── .env.example
 ```
@@ -202,6 +193,6 @@ When running on a remote machine, commit and push the `logs/` and `results/` dir
 ## References
 
 - Langdon et al., 2016. *Updating the American Society of Clinical Oncology Value Framework.* Journal of Clinical Oncology. [DOI: 10.1200/JCO.2016.68.2518](https://ascopubs.org/doi/full/10.1200/JCO.2016.68.2518)
-- ClinicalTrials.gov API v2: [https://clinicaltrials.gov/data-api/api](https://clinicaltrials.gov/data-api/api)
-- PubMed Entrez Utilities: [https://www.ncbi.nlm.nih.gov/books/NBK25501/](https://www.ncbi.nlm.nih.gov/books/NBK25501/)
-- OpenRouter: [https://openrouter.ai/](https://openrouter.ai/)
+- [ClinicalTrials.gov API v2](https://clinicaltrials.gov/data-api/api)
+- [PubMed Entrez Utilities](https://www.ncbi.nlm.nih.gov/books/NBK25501/)
+- [OpenRouter](https://openrouter.ai/)
