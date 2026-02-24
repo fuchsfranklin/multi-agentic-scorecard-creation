@@ -1,105 +1,82 @@
 # Changelog
 
-## v2.5 — February 22, 2026 Research-Backed Extraction & Retrieval Improvements
+## v3.1 — February 23, 2026 Project Cleanup & Auto-Archive
 
-Based on deep research into knowledge-conditioned LLM extraction (arxiv 2406.18027),
-numerical extraction from RCTs (arxiv 2405.01686), self-consistency voting, and
-biomedical RAG optimization. Targets the two underperforming approaches:
-Multi-Agentic (34.0%) and RAG-LLM (51.6%).
+### Cleanup
+- Deleted leftover scaffolding files: `MOVE_COMMANDS.ps1`, `MOVE_PLAN.txt`,
+  `NEW_PROJECT_STRUCTURE.md`, `src/_test_csv_match.py`.
+- Deleted empty test stubs: `tests/test_cli.py`, `tests/test_single_llm.py`,
+  `tests/test_multi_agentic.py`, `tests/test_rag.py`.
+- Removed `tests/` directory entirely (was empty stubs only).
 
-### Multi-Agentic (`src/multi_agentic_scorecard.py`) — 5 improvements
+### Results archiving
+- Moved all v2.3 results (Feb 21 run) into `results/archive/v2.3_20260221/`.
+- Moved original Deep Outputs CSVs (Aug 2025, wrong formulas) into
+  `results/archive/v1_deep_outputs/`.
+- Active result directories (`results/{approach}/`) are now empty, ready for
+  the first v3 run.
 
-1. **Self-consistency voting**: Each extraction stage runs 3 times, median numeric
-   values taken. Based on knowledge-conditioned extraction research showing +12.9% F1
-   improvement. Directly addresses HR variance and cross-contamination.
+### Auto-archive on each run
+- `run_all.py` now calls `archive_previous_results()` before each run. Any
+  existing CSVs/markdown in `results/{approach}/` are moved to
+  `results/archive/run_{timestamp}/` automatically. This prevents new results
+  from silently overwriting old ones.
+- `evaluate.py` now stamps each report with run date and model configuration.
 
-2. **Two-stage extraction**: HR extracted separately from toxicity/bonus using focused
-   text snippets. Prevents the LLM from confusing values across different document
-   sections (root cause of HR cross-contamination where 0.63 was extracted for 3 trials).
+## v3.0 — February 23, 2026 Methodological Overhaul (Self-Consistency, MAD, CRAG)
 
-3. **PubMed abstract as HR anchor**: PubMed abstracts are short and almost always
-   contain the primary HR. Now prioritized as the primary source for HR extraction,
-   with CT.gov text as validation. Previously PubMed was appended at the end.
+Complete rewrite of all four scorecard approaches with modern LLM techniques (Feb 2026).
+Goal: address the three root causes from v2.3 — bonus hallucination, extraction failures,
+and toxicity guessing — using techniques that are current as of early 2026.
 
-4. **Landmark trial name matching**: NCT study selection now checks for known trial
-   names (AFFIRM, NSABP B-31, EORTC 18071, RESONATE-2) in addition to title keywords.
-   Adds +10 score bonus for landmark name matches. Addresses the v2.3 issue where
-   NCT02294461 was selected over NCT00974311 (the actual AFFIRM trial).
+### Single LLM → Self-Consistency + Bonus Audit
+- Self-Consistency voting: 3 independent Chain-of-Thought samples per trial, median-vote
+  on NHB. Reduces variance from single-sample generation.
+- Two-pass bonus audit: a second LLM call reviews each scorecard and strips any bonus
+  points not supported by specific trial evidence. Returns structured JSON with
+  per-category keep/strip decisions.
+- Zero-bonus calibration: few-shot example changed from Enzalutamide (36 bonus) to
+  Ibrutinib (0 bonus) to teach the model that most trials get 0 bonus.
+- Explicit AE rate hints in scenario contexts (e.g., "Grade 3-4 AE: 15% exp vs 13.5% ctrl")
+  to reduce toxicity guessing.
+- 16 LLM calls total (3 samples + 1 audit × 4 trials), up from 4 in v2.
 
-5. **Focused snippet extraction**: Instead of feeding 15-30K chars of raw text, the
-   extractor now searches for keyword-relevant snippets (e.g., "hazard ratio", "grade 3")
-   and builds focused context windows. Reduces noise and improves extraction accuracy.
+### Multi-Agentic → Multi-Agent Debate (MAD)
+- Hard-coded NCT ID lookup via `LANDMARK_NCT_IDS` dict eliminates the search-and-hope
+  approach that pulled 861K chars of wrong trials in v2.3.
+- PubMed-first extraction: abstracts are the primary data source, not CT.gov JSON dumps.
+- Two independent `ExtractionAgent` instances (A and B) with different prompt styles
+  extract metrics from the same text.
+- `JudgeAgent` resolves disagreements between extractors using a structured comparison.
+- Deterministic `CalculationAgent` applies ASCO formulas (no LLM math).
+- Targeted PubMed queries using landmark trial names (AFFIRM, NSABP B-31, EORTC 18071,
+  RESONATE-2) and author names.
+- 8–12 LLM calls total (2 extractors + optional judge × 4 trials).
 
-LLM calls increased from 4 to ~24 (6 per trial: 3 HR votes + 3 tox votes). Cost
-increase: ~$0.08 → ~$0.12 total. Acceptable for the accuracy improvement.
+### RAG-LLM → Corrective RAG (CRAG) + Bonus Audit
+- Document grading step: each retrieved document is scored for relevance to the specific
+  trial before being included in the generation context.
+- Query rewriting: if fewer than 2 documents pass grading, the query is rewritten using
+  landmark trial names and author names for a second retrieval attempt.
+- Same zero-bonus prompt and two-pass bonus audit as single LLM.
+- Targeted PubMed keywords using author names and trial acronyms.
+- 12+ LLM calls total (grading + generation + audit × 4 trials).
 
-### RAG-LLM (`src/rag_llm_scorecard.py`) — 5 improvements
+### Deep Outputs → Corrected ASCO Formulas
+- `ASCO_PROMPT_TEMPLATE` with mandatory formulas embedded: CBS=(1−HR)×100,
+  Toxicity=((exp/ctrl)−1)×−20.
+- Explicit "DO NOT invent alternative formulas like (1−HR)×25" instruction.
+- Ibrutinib reference example (0 bonus) for calibration.
+- Fallback to direct LLM generation if MoA engine unavailable.
+- Robust output parsing with `parse_moa_output_to_csv()` and `_extract_from_prose()`.
+- All 4 trials now included (previously only Ibrutinib was uncommented).
 
-1. **Document chunking**: Abstracts split into ~512-token chunks with 100-token overlap
-   before embedding. Research shows factoid/numeric queries benefit from smaller chunks
-   (256-512 tokens) vs full abstracts. Improves retrieval of specific HR and AE values.
-
-2. **Query decomposition**: Instead of 1 combined query per trial, now runs 3 targeted
-   sub-queries: (a) HR + trial name, (b) toxicity/AE, (c) bonus evidence. Results are
-   deduplicated and merged. Retrieves ~12 unique chunks vs previous 5.
-
-3. **Toxicity grounding**: Added explicit prompt instruction that control-arm Grade 3+
-   AEs are typically 15-30% in oncology trials. Specifically addresses the Ipilimumab
-   error where the model estimated 15% for the placebo arm (gold: 28%).
-
-4. **Bonus verification step**: After initial generation, if total bonus > 0, a second
-   LLM call asks the model to justify each non-zero bonus with a specific quote from
-   the retrieved literature. If it can't quote evidence, the bonus is set to 0.
-   Addresses persistent bonus inflation across all approaches.
-
-5. **Stricter bonus prompt language**: Added "If you cannot cite a specific finding from
-   the retrieved literature for a bonus category, it MUST be 0" to the main prompt.
-
-LLM calls increased from 4 to 4-8 (1-2 per trial depending on bonus verification).
-Cost increase: ~$0.04 → ~$0.08 total.
-
-### Both approaches
-- Updated REMOTE_RUN_INSTRUCTIONS.md with v2.5 changes and expected improvements
-- Updated docs/CHANGELOG.md (this file)
-
-### Expected impact
-- Multi-Agentic: 34% → 55-65% (self-consistency voting + two-stage extraction should
-  fix HR cross-contamination and Enzalutamide HR=1.0 failure)
-- RAG-LLM: 51.6% → 60-70% (bonus verification + toxicity grounding should fix the
-  two biggest error sources)
-- Combined cost for full run: ~$0.20 (up from ~$0.12, still very cheap)
-
-## v2.4.1 — February 21, 2026 Deep-Dive Analysis & Documentation Update
-
-### Results deep-dive (post-run analysis of v2.3 baseline)
-- Added per-trial component breakdown table to README (CBS, Tox, Bonus for all 3 approaches
-  side-by-side with gold standard). This makes error attribution much clearer.
-- Identified HR cross-contamination in multi-agentic: HR = 0.63 was extracted for AC-TH,
-  Ipilimumab, and Ibrutinib — this is the Enzalutamide HR, confirming the LLM confuses
-  trials within the corpus when context is too large.
-- Identified RAG-LLM control-arm toxicity error for Ipilimumab: model estimated 15% Grade
-  3-4 AEs in placebo arm (gold: 28%), likely confusing "placebo" with "no toxicity."
-- Confirmed the follow-up run (23:22 UTC) produced no new results — all LLM calls hit 401
-  Unauthorized. The evaluation step re-ran against existing files and confirmed same scores.
-- Discovered `TeeWriter` missing `isatty` attribute bug in RAG pipeline — embedding model
-  load failed silently in the follow-up run, meaning RAG would have used stale embeddings.
-
-### Documentation updates
-- Rewrote README Results section with expanded analysis: per-approach breakdown, component
-  table, root cause analysis for each trial, Deep Outputs formula deviation table.
-- Rewrote README Next Steps: split into "Completed (v2.4, pending validation)", "Still
-  needed for next run" (5 items including TeeWriter fix and 401 error), and "Future
-  improvements" (6 items including ensemble approach and cost data integration).
-- Rewrote docs/EVALUATION_METRICS.md with current run data: trial-by-trial component
-  analysis, component-level accuracy tables, run environment notes, expected v2.4 impact.
-- Added Deep Outputs formula deviation analysis to both README and EVALUATION_METRICS.md.
-
-### New troubleshooting items identified
-- OpenRouter 401 error on remote machine — API key may have expired or been rotated.
-- `TeeWriter.isatty` missing — needs `isatty()` method added to `log_setup.py`.
-- RAG pipeline may use stale LanceDB embeddings if embedding model fails to load.
-- Multi-agentic pre-filtering selected NCT02294461 (177K chars, score=5) over NCT00974311
-  (246K chars, the actual AFFIRM trial) — title-keyword scoring needs tuning.
+### README
+- Updated "three approaches" table with v3 techniques.
+- Results section now labeled as "Pre-v3 baseline" with notes on what v3 changes.
+- Updated cost table (16 calls for single LLM, 8–12 for multi-agentic, 12+ for RAG).
+- Updated project structure descriptions.
+- Next steps section reflects v3 status.
 
 ## v2.4 — February 21, 2026 Accuracy Improvements (Prompts, Retrieval, Validation)
 

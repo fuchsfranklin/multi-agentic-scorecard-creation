@@ -19,6 +19,7 @@ import sys
 import os
 import json
 import time
+import shutil
 import datetime
 import argparse
 import traceback
@@ -30,8 +31,58 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from log_setup import get_run_logger, TeeWriter, LOGS_DIR
 
-
+RESULTS_DIR = PROJECT_ROOT / "results"
 APPROACHES = ["single_llm", "multi_agentic", "rag_llm"]
+
+
+def archive_previous_results(timestamp: str, logger):
+    """Move any existing results into results/archive/{timestamp}/ before a new run.
+
+    This prevents new results from being confused with old ones. Only archives
+    directories that actually contain result files (not just .gitkeep).
+    """
+    archive_base = RESULTS_DIR / "archive"
+    has_results = False
+
+    for approach in APPROACHES + ["deep_outputs"]:
+        approach_dir = RESULTS_DIR / approach
+        if not approach_dir.exists():
+            continue
+        result_files = [f for f in approach_dir.iterdir()
+                        if f.is_file() and f.name != ".gitkeep"]
+        if result_files:
+            has_results = True
+            break
+
+    eval_report = RESULTS_DIR / "evaluation_report.md"
+    if eval_report.exists():
+        has_results = True
+
+    if not has_results:
+        logger.info("No previous results to archive.")
+        return
+
+    archive_dir = archive_base / f"run_{timestamp}"
+    logger.info(f"Archiving previous results to: {archive_dir}")
+
+    for approach in APPROACHES + ["deep_outputs"]:
+        approach_dir = RESULTS_DIR / approach
+        if not approach_dir.exists():
+            continue
+        result_files = [f for f in approach_dir.iterdir()
+                        if f.is_file() and f.name != ".gitkeep"]
+        if not result_files:
+            continue
+        dest = archive_dir / approach
+        dest.mkdir(parents=True, exist_ok=True)
+        for f in result_files:
+            shutil.move(str(f), str(dest / f.name))
+            logger.info(f"  Archived: {approach}/{f.name}")
+
+    if eval_report.exists():
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(eval_report), str(archive_dir / eval_report.name))
+        logger.info(f"  Archived: evaluation_report.md")
 
 
 def run_approach(name: str, logger) -> dict:
@@ -149,6 +200,9 @@ def main():
         sys.stdout = tee_stdout.original
         sys.stderr = tee_stderr.original
         return
+
+    # Archive previous results so new run doesn't mix with old
+    archive_previous_results(timestamp, logger)
 
     # Determine which approaches to run
     approaches_to_run = [args.only] if args.only else APPROACHES

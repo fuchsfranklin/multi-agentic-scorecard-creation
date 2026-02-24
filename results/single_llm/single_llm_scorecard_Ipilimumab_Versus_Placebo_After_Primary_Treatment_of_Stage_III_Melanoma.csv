@@ -1,7 +1,0 @@
-Measure,Result/Score,
-Clinical Benefit Score,HR = 0.75 → (1 - 0.75) × 100 = 25,25
-Toxicity Score,54.1% / 25.0% - 1 = 1.164 → 1.164 × -20 = -23.28,-23.28
-Bonus Points,"Tail of Curve: 16, Palliation: 0, TFI: 0, QoL: 0",0
-Total Bonus Points,16,16
-Net Health Benefit,25 - 23.28 + 16 = 17.72,17.72
-Cost (Per Month),"$28,000","$28,000"

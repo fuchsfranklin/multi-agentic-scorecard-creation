@@ -26,6 +26,7 @@ import sys
 import csv
 import re
 import math
+import datetime
 import argparse
 from pathlib import Path
 from typing import Union, Optional, Dict, List
@@ -381,13 +382,32 @@ def run_deepeval_metrics(all_results: dict) -> dict:
 
 def format_report(all_results: dict, deepeval_results: Optional[Dict] = None) -> str:
     """Format evaluation results into a Markdown report."""
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     lines = [
         "# Evaluation Report: LLM Scorecard Approaches vs Gold Standard\n",
-        "Gold Standard source: Langdon et al., 2016 (ASCO Value Framework)\n",
+        "Gold Standard source: Langdon et al., 2016 (ASCO Value Framework)",
+        f"Run date: {now}\n",
+    ]
+
+    # Add config info if available
+    try:
+        import config
+        lines.append("## Run configuration\n")
+        lines.append("| Setting | Value |")
+        lines.append("|---------|-------|")
+        lines.append(f"| PRIMARY_MODEL | {config.PRIMARY_MODEL} |")
+        lines.append(f"| EXTRACTION_MODEL | {config.EXTRACTION_MODEL} |")
+        lines.append(f"| JUDGE_MODEL | {config.JUDGE_MODEL} |")
+        lines.append(f"| EMBEDDING_MODEL | {config.EMBEDDING_MODEL_FOR_RAG} |")
+        lines.append("")
+    except Exception:
+        pass
+
+    lines.extend([
         "## Summary\n",
         "| Approach | Accuracy (100-MAPE) | MAPE | Pearson r | Trials Evaluated |",
         "|----------|--------------------:|-----:|----------:|-----------------:|",
-    ]
+    ])
 
     for name, res in all_results.items():
         r_str = f"{res['pearson_r']:.3f}" if res['pearson_r'] is not None else "N/A"

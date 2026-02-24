@@ -38,4 +38,3 @@ lancedb/
 # MOA-DeepOutputs traces and reports (regenerated)
 src/MOA-DeepOutputs-main/Traces/
 src/MOA-DeepOutputs-main/reports/
-.env

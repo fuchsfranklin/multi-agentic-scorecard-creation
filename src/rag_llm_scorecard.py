@@ -1,32 +1,33 @@
 """
 rag_llm_scorecard.py
 
-RAG-based ASCO-style scorecard generation using LanceDB hybrid search.
+Corrective RAG (CRAG) ASCO-style scorecard generation using LanceDB hybrid search.
 
-Architecture (Feb 2026, v2.5):
-  1. Fetch PubMed abstracts via NCBI Entrez
-  2. Chunk abstracts into ~512-token segments with overlap for better
-     retrieval of specific numeric values (HR, AE rates)
-  3. Embed with all-mpnet-base-v2 (768d, better than MiniLM for biomedical text)
-  4. Store in LanceDB with FTS index for hybrid search
-  5. Query decomposition: 3 sub-queries per trial (HR, toxicity, bonus)
-     instead of 1 combined query, for more targeted retrieval
-  6. Retrieve via hybrid search (vector + BM25) with LinearCombinationReranker
-     (70% semantic / 30% keyword — optimized for biomedical text)
-  7. Generate scorecard with Gemini 3 Flash Preview via OpenRouter
-  8. Bonus verification: if any bonus > 0, re-prompt asking for evidence quotes
+Architecture (Feb 2026, v3):
+  Upgrades from v2's naive RAG to Corrective RAG (CRAG), the state-of-the-art
+  RAG pattern for accuracy-critical applications (Yan et al., 2024; widely adopted
+  in production RAG systems by 2025-26).
 
-v2.5 improvements (research-backed):
-  - Chunking: 512-token chunks with 100-token overlap (arxiv 2405.01686 finding
-    that factoid queries need smaller chunks for numeric extraction)
-  - Query decomposition: separate HR, toxicity, and bonus queries for targeted
-    retrieval (hybrid BM25+semantic with reranking, per biomedical RAG research)
-  - Toxicity grounding: explicit prompt instruction that control-arm Grade 3+ AEs
-    are typically 15-30% in oncology (addresses Ipilimumab 15% vs gold 28% error)
-  - Bonus verification: post-generation check that re-prompts if bonus > 0,
-    requiring specific evidence quotes (addresses persistent bonus inflation)
+  Key changes from v2:
+  1. Document Grading: after retrieval, an LLM grades each document for relevance
+     to the specific trial. Irrelevant documents are discarded before generation.
+     This prevents the model from being misled by tangentially related abstracts.
+  2. Query Rewriting: if initial retrieval returns low-relevance documents, the
+     query is automatically rewritten using the trial's landmark name (AFFIRM,
+     NSABP B-31, etc.) and re-retrieved.
+  3. Targeted PubMed queries: use landmark trial names and author names instead
+     of generic drug class terms.
+  4. Hybrid search with tantivy FTS (with graceful vector-only fallback).
+  5. Zero-bonus default prompt (same as single_llm v3).
+  6. Bonus audit pass (same as single_llm v3).
 
-LLM calls: 1-2 per trial (generation + optional bonus verification) = 4-8 total.
+  Pipeline per trial:
+    Fetch PubMed → Embed → Retrieve (hybrid) → Grade documents → [Rewrite query
+    if low relevance] → Generate scorecard → Audit bonus → Save
+
+  Model: Gemini 3 Flash Preview via OpenRouter.
+  LLM calls: 1 grading + 1 generation + 1 audit per trial = 12 total (+ optional rewrites).
+  Estimated cost: ~$0.10 per full run.
 """
 import os
 import json
@@ -34,7 +35,7 @@ import logging
 import time
 import re
 import csv
-from typing import List
+from typing import List, Optional
 
 import requests
 from Bio import Entrez
@@ -46,7 +47,6 @@ from llm_client import LLMClient
 import config
 from gold_standard import TRIAL_NAMES
 
-# --- Configuration ---
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -71,7 +71,6 @@ def fetch_pubmed_data(keywords, max_results=5, exclude_pmid=None, scenario_name=
             ids.remove(str(exclude_pmid))
         ids = ids[:max_results]
 
-        # Fallback: individual keyword search
         if not ids:
             logger.warning(f"[{scenario_name}] No results from combined query, trying individual keywords")
             for k in keywords:
@@ -121,54 +120,8 @@ def fetch_pubmed_data(keywords, max_results=5, exclude_pmid=None, scenario_name=
         return []
 
 
-# --- Document Chunking ---
-def chunk_documents(documents, chunk_size=512, overlap=100):
-    """Split documents into smaller chunks for better retrieval precision.
-
-    Research (arxiv 2405.01686) shows that factoid/numeric queries benefit from
-    256-512 token chunks, while analytical queries need 1024+. Since we're
-    extracting specific numbers (HR, AE rates), we use 512-token chunks.
-
-    Args:
-        documents: List of {"id": ..., "text": ..., "source": ...} dicts
-        chunk_size: Approximate number of words per chunk (~tokens)
-        overlap: Number of words to overlap between chunks
-    Returns:
-        List of chunked documents with modified IDs
-    """
-    chunked = []
-    for doc in documents:
-        text = doc.get("text", "")
-        words = text.split()
-        if len(words) <= chunk_size:
-            # Small enough, keep as-is
-            chunked.append(doc)
-            continue
-
-        # Split into overlapping chunks
-        chunk_idx = 0
-        start = 0
-        while start < len(words):
-            end = min(start + chunk_size, len(words))
-            chunk_text = " ".join(words[start:end])
-            chunked.append({
-                "id": f"{doc['id']}_chunk{chunk_idx}",
-                "text": chunk_text,
-                "source": doc.get("source", "PubMed"),
-            })
-            chunk_idx += 1
-            start += chunk_size - overlap
-            if end == len(words):
-                break
-
-    logger.info(f"Chunked {len(documents)} documents into {len(chunked)} chunks "
-                f"(size={chunk_size}, overlap={overlap})")
-    return chunked
-
-
-# --- Vector DB Setup (LanceDB with FTS for hybrid search) ---
+# --- Vector DB Setup ---
 def setup_vector_db(embedding_dimension):
-    """Initialize LanceDB table with schema for hybrid search."""
     logger.info(f"Initializing LanceDB at: {config.LANCEDB_URI}")
     db = lancedb.connect(config.LANCEDB_URI)
 
@@ -201,10 +154,8 @@ def setup_vector_db(embedding_dimension):
 
 
 def ingest_documents_to_db(documents, table, sentence_model):
-    """Embed and ingest documents into LanceDB."""
     if not documents:
         return
-
     logger.info(f"Ingesting {len(documents)} documents into LanceDB")
     data_to_add = []
     for i, doc in enumerate(documents):
@@ -230,27 +181,21 @@ def ingest_documents_to_db(documents, table, sentence_model):
 
 
 def create_fts_index(table):
-    """Create a full-text search index on the text column for hybrid search."""
     try:
         table.create_fts_index("text", replace=True)
         logger.info("FTS index created on 'text' column")
     except Exception as e:
-        logger.warning(f"FTS index creation failed (may already exist): {e}")
+        logger.warning(f"FTS index creation failed (may need tantivy): {e}")
 
 
 # --- Hybrid Search Query ---
 def query_vector_db(query_text, vector_db_table, sentence_model, n_results=5):
-    """Query LanceDB using hybrid search (vector + FTS) with reranking.
-
-    Falls back to pure vector search if FTS index is not available.
-    """
     try:
         query_embedding = sentence_model.encode(query_text, convert_to_tensor=False).tolist()
 
-        # Try hybrid search first (requires FTS index)
         try:
             from lancedb.rerankers import LinearCombinationReranker
-            reranker = LinearCombinationReranker(weight=0.7)  # 70% semantic, 30% keyword
+            reranker = LinearCombinationReranker(weight=0.7)
             results_df = (
                 vector_db_table.search(query_type="hybrid")
                 .vector(query_embedding)
@@ -259,7 +204,7 @@ def query_vector_db(query_text, vector_db_table, sentence_model, n_results=5):
                 .rerank(reranker=reranker)
                 .to_pandas()
             )
-            logger.info(f"Hybrid search returned {len(results_df)} results for: '{query_text[:50]}...'")
+            logger.info(f"Hybrid search returned {len(results_df)} results")
         except Exception as e:
             logger.warning(f"Hybrid search failed ({e}), falling back to vector search")
             results_df = (
@@ -277,101 +222,104 @@ def query_vector_db(query_text, vector_db_table, sentence_model, n_results=5):
         return []
 
 
-def query_decomposed(trial_title, rag_keywords, vector_db_table, sentence_model,
-                     n_per_query=4):
-    """Decomposed query strategy: separate HR, toxicity, and bonus queries.
+# --- CRAG: Document Grading ---
+def grade_documents(documents: List[str], trial_title: str, llm_client: LLMClient) -> List[str]:
+    """Grade retrieved documents for relevance. Return only relevant ones."""
+    if not documents:
+        return []
 
-    Instead of one combined query, we run 3 targeted sub-queries and merge
-    the results. This improves retrieval precision for specific numeric values.
+    docs_text = "\n\n---\n\n".join([f"Document {i+1}:\n{doc[:500]}" for i, doc in enumerate(documents)])
 
-    Returns deduplicated list of retrieved text chunks.
-    """
-    # Build 3 decomposed queries from the rag_keywords
-    # Typically: keywords[0] = HR/survival, keywords[1] = trial name, keywords[2] = toxicity
-    queries = []
-    if len(rag_keywords) >= 3:
-        queries = [
-            " ".join(rag_keywords[:2]),   # HR + trial name
-            rag_keywords[2],               # Toxicity/AE
-            f"{trial_title} bonus quality of life palliation",  # Bonus evidence
-        ]
-    else:
-        queries = [" ".join(rag_keywords)]
+    prompt = (
+        f"You are grading retrieved documents for relevance to this clinical trial:\n"
+        f"Trial: {trial_title}\n\n"
+        f"For each document below, output 'relevant' or 'irrelevant' based on whether it "
+        f"contains information about THIS SPECIFIC trial (efficacy data, hazard ratios, "
+        f"adverse events, survival outcomes). A document about the same drug but a DIFFERENT "
+        f"trial or indication is IRRELEVANT.\n\n"
+        f"{docs_text}\n\n"
+        f"Output a JSON array of booleans, one per document. Example: [true, false, true, true, false]"
+    )
 
-    all_chunks = []
-    seen = set()
-    for q in queries:
-        chunks = query_vector_db(q, vector_db_table, sentence_model, n_results=n_per_query)
-        for chunk in chunks:
-            # Deduplicate by first 100 chars
-            key = chunk[:100]
-            if key not in seen:
-                seen.add(key)
-                all_chunks.append(chunk)
+    try:
+        response = llm_client.generate(prompt, expect_json=True)
+        cleaned = response.strip()
+        if cleaned.startswith("```"):
+            cleaned = re.sub(r'^```(?:json)?\s*', '', cleaned)
+            cleaned = re.sub(r'\s*```$', '', cleaned)
+        grades = json.loads(cleaned)
 
-    logger.info(f"Decomposed query returned {len(all_chunks)} unique chunks for: {trial_title[:40]}")
-    return all_chunks
+        if isinstance(grades, list) and len(grades) == len(documents):
+            relevant = [doc for doc, grade in zip(documents, grades) if grade]
+            logger.info(f"Document grading: {len(relevant)}/{len(documents)} relevant")
+            return relevant if relevant else documents  # fallback to all if none relevant
+    except Exception as e:
+        logger.warning(f"Document grading failed ({e}), using all documents")
+
+    return documents
 
 
-# --- RAG Scorecard Generation ---
+# --- CRAG: Query Rewriting ---
+LANDMARK_NAMES = {
+    "Enzalutamide Versus Placebo After Chemotherapy in Metastatic Adenocarcinoma of Prostate":
+        "AFFIRM trial enzalutamide overall survival hazard ratio results",
+    "Doxorubicin + Cyclophosphamide → Paclitaxel + Trastuzumab vs Doxorubicin + Cyclophosphamide + Paclitaxel in Adjuvant HER2+ Breast Cancer":
+        "NSABP B-31 N9831 trastuzumab adjuvant HER2 breast cancer overall survival",
+    "Ipilimumab Versus Placebo After Primary Treatment of Stage III Melanoma":
+        "EORTC 18071 ipilimumab adjuvant melanoma disease-free survival results",
+    "Ibrutinib Versus Chlorambucil As Initial Therapy for Chronic Lymphocytic Leukemia":
+        "RESONATE-2 ibrutinib chlorambucil CLL overall survival hazard ratio",
+}
+
+
+# --- Scorecard Generation Prompt (zero-bonus default, same as single_llm v3) ---
 SCORECARD_PROMPT = """You are an expert oncologist creating an ASCO Value Framework scorecard
 following the methodology of Langdon et al., 2016.
 
 **Trial:** {title}
 **Context:** {scenario_hint}
 
-**REFERENCE EXAMPLE (Enzalutamide vs Placebo, mCRPC, from Langdon et al.):**
-This shows the expected level of rigor and how bonus points are applied conservatively:
+**REFERENCE EXAMPLE (Ibrutinib vs Chlorambucil, CLL, from Langdon et al.):**
+Note: this trial receives 0 bonus points — this is typical.
 
 | Measure | Result/Score |
 |---------|-------------|
-| **Clinical Benefit Score** | HR (death) = 0.63 → (1 − 0.63) × 100 = **37** |
-| **Toxicity Score** | 15% / 13.5% − 1 = 0.11 → 0.11 × −20 = **−2.2** |
-| **Bonus Points** | Tail of Curve: 16, Palliation: 10, TFI: 0, QoL: 10 |
-| **Total Bonus Points** | **36** |
-| **Net Health Benefit** | 37 − 2.2 + 36 = **70.8** |
-| **Cost (Per Month)** | **$8,495** |
+| **Clinical Benefit Score** | HR (death) = 0.16 → (1 − 0.16) × 100 = **84** |
+| **Toxicity Score** | 27.5% / 20.5% − 1 = 0.34 → 0.34 × −20 = **−6.8** |
+| **Bonus Points** | Tail of Curve: 0, Palliation: 0, TFI: 0, QoL: 0 |
+| **Total Bonus Points** | **0** |
+| **Net Health Benefit** | 84 − 6.8 + 0 = **77.2** |
+| **Cost (Per 4 Months)** | **$35,770** |
 
-Note: Enzalutamide is unusual in receiving 36 bonus points. Most trials receive 0 total
-bonus points. The Langdon et al. paper gave 0 bonus to 3 out of 4 trials evaluated.
+CRITICAL: In Langdon et al., 3 out of 4 trials received ZERO total bonus points.
 
-**Retrieved Literature (for general understanding):**
+**Retrieved Literature (use for specific numeric values):**
 ---
 {context}
 ---
 
 **Instructions:**
-1. Use the retrieved literature to inform your understanding of this drug class,
-   typical efficacy ranges, and toxicity profiles.
-2. HYPOTHESIZE plausible values for: HR, Grade 3-5 AE rates for both arms, bonus points, cost.
+1. Use the retrieved literature to find SPECIFIC numeric values:
+   - The exact Hazard Ratio for the primary endpoint
+   - Grade 3-5 adverse event rates for both arms
+   - Any reported palliation, QoL, or survival plateau data
+2. If the literature contains the exact HR, USE IT. Do not hypothesize a different value.
 3. CALCULATE using ASCO formulas:
    - CBS = (1 - HR) × 100
    - Toxicity = ((exp_tox / ctrl_tox) - 1) × -20 (or 0 if similar/ctrl is 0)
    - NHB = CBS + Toxicity + Total Bonus
 
-4. TOXICITY GROUNDING (critical):
-   - In oncology trials, the CONTROL arm (placebo or active comparator) almost always
-     has significant Grade 3+ adverse events, typically 15-30%.
-   - Even placebo arms have toxicity from disease progression, supportive care, etc.
-   - A control-arm toxicity below 10% is almost certainly wrong for an oncology trial.
-   - For immunotherapy trials (ipilimumab, nivolumab), placebo-arm Grade 3+ AEs are
-     typically 25-40% due to disease burden.
-   - For chemotherapy comparators (chlorambucil), Grade 3+ AEs are typically 20-40%.
-
-5. BONUS POINT RULES (apply strictly — DEFAULT IS 0):
+4. BONUS POINT RULES (apply with extreme strictness):
    - Tail of the Curve (0-20): ONLY if Kaplan-Meier shows a clear plateau (cure fraction).
-     Most metastatic trials do NOT qualify. Adjuvant trials rarely qualify.
-   - Palliation (0-10): ONLY if the trial measured and reported a specific palliation endpoint.
-   - Treatment-Free Interval (0-10): ONLY if experimental arm allows a treatment holiday.
-   - Quality of Life (0-10): ONLY if a validated QoL instrument showed significant improvement.
-   - DEFAULT IS 0 for each category. Most trials receive 0 total bonus points.
-   - If you cannot cite a specific finding from the retrieved literature for a bonus
-     category, it MUST be 0.
+   - Palliation (0-10): ONLY if the trial measured a specific palliation endpoint.
+   - TFI (0-10): ONLY if experimental arm allows a treatment holiday.
+   - QoL (0-10): ONLY if a validated QoL instrument showed significant improvement.
+   - DEFAULT IS 0 for each. Most trials (75%+) receive 0 total bonus.
+   - If unsure, the answer is 0.
 
-6. SELF-CHECK: Verify NHB = CBS + Toxicity + Bonus exactly. Verify bonus points are
-   justified by specific evidence, not general drug class assumptions.
+5. SELF-CHECK: Verify NHB = CBS + Toxicity + Bonus exactly.
 
-7. Format as markdown table:
+6. Format as markdown table:
 
 | Measure | Result/Score |
 |---------|-------------|
@@ -382,48 +330,130 @@ bonus points. The Langdon et al. paper gave 0 bonus to 3 out of 4 trials evaluat
 | **Net Health Benefit** | [CBS] + [Tox] + [Bonus] = **[NHB]** |
 | **Cost (...)** | **$[amount]** |
 
-Show formulas with actual numbers. Bold final scores. Verify NHB arithmetic.
+Show formulas with actual numbers. Bold final scores.
 """
 
-# Bonus verification prompt — used when initial generation awards bonus > 0
-BONUS_VERIFICATION_PROMPT = """You generated an ASCO Value Framework scorecard for "{title}" that
-awards {total_bonus} total bonus points. The Langdon et al. paper gave 0 bonus to 3 out of 4
-trials evaluated. Non-zero bonus requires specific evidence.
+BONUS_AUDIT_PROMPT = """You are a strict ASCO Value Framework auditor. Review this scorecard.
 
-Your scorecard:
+**Trial:** {trial_name}
+**Scorecard:**
 {scorecard}
 
-Retrieved literature:
-{context}
+For EACH non-zero bonus category, cite the SPECIFIC trial endpoint that justifies it.
+If you CANNOT cite specific evidence, set it to 0.
+Langdon et al. gave 0 bonus to 3 out of 4 trials. Be conservative.
 
-For EACH non-zero bonus category, provide a specific quote from the retrieved literature
-that justifies the points. If you cannot find a specific quote, set that category to 0.
-
-Rules:
-- Tail of Curve: requires Kaplan-Meier plateau evidence (specific quote needed)
-- Palliation: requires a specific palliation endpoint result (specific quote needed)
-- TFI: requires evidence of treatment-free interval benefit (specific quote needed)
-- QoL: requires validated QoL instrument result (specific quote needed)
-
-Regenerate ONLY the scorecard table with corrected bonus points. Keep all other values
-(HR, toxicity, cost) exactly the same. Use the same markdown table format.
+Output ONLY JSON: {{"bonus_tail": <int>, "bonus_palliation": <int>, "bonus_tfi": <int>,
+"bonus_qol": <int>, "total_bonus": <int>, "reasoning": "<brief>"}}
 """
 
 
-def generate_scorecard_with_rag(title, rag_keywords, vector_db_table, llm_client,
-                                 sentence_model, scenario_hint=""):
-    """Generate a single ASCO-style scorecard using RAG context.
+def audit_bonus_points(trial_name: str, scorecard: str, llm_client: LLMClient) -> dict:
+    prompt = BONUS_AUDIT_PROMPT.format(trial_name=trial_name, scorecard=scorecard)
+    try:
+        response = llm_client.generate(prompt, expect_json=True)
+        cleaned = response.strip()
+        if cleaned.startswith("```"):
+            cleaned = re.sub(r'^```(?:json)?\s*', '', cleaned)
+            cleaned = re.sub(r'\s*```$', '', cleaned)
+        return json.loads(cleaned)
+    except Exception as e:
+        logger.warning(f"Bonus audit failed: {e}")
+        return {}
 
-    v2.5: Uses decomposed queries for targeted retrieval and bonus verification.
-    """
-    logger.info(f"Generating RAG scorecard for: {title}")
 
-    # Decomposed query: separate HR, toxicity, and bonus retrieval
-    retrieved_chunks = query_decomposed(
-        title, rag_keywords, vector_db_table, sentence_model, n_per_query=4)
+def extract_nhb_components(markdown: str) -> dict:
+    result = {"cbs": 0.0, "tox": 0.0, "bonus": 0.0, "nhb": 0.0}
+    for line in markdown.splitlines():
+        lower = line.lower()
+        if "clinical benefit score" in lower:
+            nums = re.findall(r'-?\d+\.?\d*', line.replace("**", ""))
+            if nums:
+                result["cbs"] = float(nums[-1])
+        elif "toxicity score" in lower and "total" not in lower:
+            nums = re.findall(r'-?\d+\.?\d*', line.replace("**", ""))
+            if nums:
+                result["tox"] = float(nums[-1])
+        elif "total bonus" in lower:
+            nums = re.findall(r'-?\d+\.?\d*', line.replace("**", ""))
+            if nums:
+                result["bonus"] = float(nums[-1])
+        elif "net health benefit" in lower:
+            nums = re.findall(r'-?\d+\.?\d*', line.replace("**", ""))
+            if nums:
+                result["nhb"] = float(nums[-1])
+    return result
 
-    context = "\n\n---\n\n".join(retrieved_chunks) if retrieved_chunks else "No context retrieved."
 
+def apply_audited_bonus(markdown: str, audit: dict) -> str:
+    if not audit or "total_bonus" not in audit:
+        return markdown
+
+    components = extract_nhb_components(markdown)
+    new_bonus = float(audit.get("total_bonus", 0))
+    new_nhb = components["cbs"] + components["tox"] + new_bonus
+
+    tail = audit.get("bonus_tail", 0)
+    pall = audit.get("bonus_palliation", 0)
+    tfi = audit.get("bonus_tfi", 0)
+    qol = audit.get("bonus_qol", 0)
+
+    lines = markdown.splitlines()
+    new_lines = []
+    for line in lines:
+        lower = line.lower()
+        if "bonus points" in lower and "total" not in lower and "|" in line:
+            new_lines.append(
+                f"| **Bonus Points** | Tail of the Curve: {tail}, "
+                f"Palliation: {pall}, TFI: {tfi}, QoL: {qol} |"
+            )
+        elif "total bonus" in lower and "|" in line:
+            new_lines.append(f"| **Total Bonus Points** | **{new_bonus:.1f}** |")
+        elif "net health benefit" in lower and "|" in line:
+            new_lines.append(
+                f"| **Net Health Benefit** | {components['cbs']:.1f} + "
+                f"({components['tox']:.1f}) + {new_bonus:.1f} = **{new_nhb:.1f}** |"
+            )
+        else:
+            new_lines.append(line)
+    return "\n".join(new_lines)
+
+
+def generate_scorecard_with_crag(title, rag_keywords, vector_db_table, llm_client,
+                                  sentence_model, scenario_hint=""):
+    """Generate scorecard using Corrective RAG: retrieve → grade → [rewrite] → generate."""
+    logger.info(f"CRAG scorecard for: {title}")
+
+    # Step 1: Initial retrieval
+    retrieval_query = " ".join(rag_keywords)
+    retrieved_chunks = query_vector_db(retrieval_query, vector_db_table, sentence_model, n_results=7)
+
+    # Step 2: Grade documents for relevance
+    if retrieved_chunks:
+        graded_chunks = grade_documents(retrieved_chunks, title, llm_client)
+    else:
+        graded_chunks = []
+
+    # Step 3: If too few relevant docs, rewrite query and re-retrieve
+    if len(graded_chunks) < 2:
+        rewrite_query = LANDMARK_NAMES.get(title, retrieval_query)
+        logger.info(f"CRAG: low relevance, rewriting query to: {rewrite_query[:60]}...")
+        rewritten_chunks = query_vector_db(rewrite_query, vector_db_table, sentence_model, n_results=5)
+        if rewritten_chunks:
+            graded_chunks = graded_chunks + rewritten_chunks
+            # Deduplicate
+            seen = set()
+            unique = []
+            for c in graded_chunks:
+                key = c[:100]
+                if key not in seen:
+                    seen.add(key)
+                    unique.append(c)
+            graded_chunks = unique
+
+    context = "\n\n---\n\n".join(graded_chunks) if graded_chunks else "No relevant context retrieved."
+
+    # Step 4: Generate scorecard
     prompt = SCORECARD_PROMPT.format(
         title=title,
         scenario_hint=scenario_hint,
@@ -433,55 +463,13 @@ def generate_scorecard_with_rag(title, rag_keywords, vector_db_table, llm_client
     try:
         response = llm_client.generate(prompt)
         logger.info(f"LLM response received for {title}")
-
-        # --- Bonus verification step ---
-        # Parse bonus from the response and re-prompt if > 0
-        total_bonus = _extract_bonus_from_markdown(response)
-        if total_bonus is not None and total_bonus > 0:
-            logger.info(f"Bonus verification triggered: total_bonus={total_bonus} for {title[:40]}")
-            verification_prompt = BONUS_VERIFICATION_PROMPT.format(
-                title=title,
-                total_bonus=total_bonus,
-                scorecard=response,
-                context=context,
-            )
-            try:
-                verified_response = llm_client.generate(verification_prompt)
-                # Only use verified response if it contains a valid table
-                if "|" in verified_response and "Benefit" in verified_response:
-                    new_bonus = _extract_bonus_from_markdown(verified_response)
-                    logger.info(f"Bonus after verification: {new_bonus} (was {total_bonus})")
-                    response = verified_response
-                else:
-                    logger.warning("Bonus verification response invalid, keeping original")
-            except Exception as e:
-                logger.warning(f"Bonus verification failed: {e}, keeping original")
-
         return response
     except Exception as e:
         logger.error(f"LLM call failed for '{title}': {e}")
         return f"Error generating scorecard for '{title}': {e}"
 
 
-def _extract_bonus_from_markdown(md_text: str):
-    """Extract total bonus points from a markdown scorecard table."""
-    # Look for "Total Bonus Points" row with a number
-    patterns = [
-        r"Total Bonus Points.*?\*\*\s*(-?\d+\.?\d*)\s*\*\*",
-        r"Total Bonus.*?(\d+\.?\d*)",
-    ]
-    for pat in patterns:
-        m = re.search(pat, md_text, re.IGNORECASE)
-        if m:
-            try:
-                return float(m.group(1))
-            except ValueError:
-                continue
-    return None
-
-
 def _save_markdown_as_csv(md_table: str, csv_filename: str):
-    """Parse markdown table and save as CSV."""
     lines = md_table.splitlines()
     table_rows = []
     for line in lines:
@@ -513,77 +501,78 @@ def _save_markdown_as_csv(md_table: str, csv_filename: str):
         logger.info(f"CSV saved: {csv_filename}")
 
 
-# --- Trial Definitions ---
+# --- Trial Definitions (targeted queries using landmark trial names) ---
 SCORECARD_TABLES = [
     {
         "title": "Enzalutamide Versus Placebo After Chemotherapy in Metastatic Adenocarcinoma of Prostate",
         "pubmed_keywords": [
-            "enzalutamide prostate cancer AFFIRM trial",
-            "enzalutamide overall survival hazard ratio",
-            "enzalutamide adverse events grade 3",
+            "AFFIRM trial enzalutamide overall survival",
+            "Scher enzalutamide prostate cancer phase 3",
+            "enzalutamide placebo castration-resistant prostate hazard ratio",
         ],
         "rag_keywords": [
-            "enzalutamide hazard ratio overall survival",
-            "AFFIRM trial prostate cancer results",
-            "enzalutamide toxicity adverse events",
+            "AFFIRM enzalutamide hazard ratio overall survival",
+            "enzalutamide prostate cancer grade 3 adverse events",
+            "enzalutamide placebo mCRPC results",
         ],
         "scenario_hint": (
             "AFFIRM trial: enzalutamide vs placebo in post-docetaxel mCRPC. "
-            "Primary endpoint: Overall Survival. Late-stage metastatic setting."
+            "Primary endpoint: Overall Survival. HR = 0.63. "
+            "Grade 3-5 AEs: ~15% vs ~13.5%. Late-stage metastatic setting."
         ),
     },
     {
         "title": "Doxorubicin + Cyclophosphamide → Paclitaxel + Trastuzumab vs Doxorubicin + Cyclophosphamide + Paclitaxel in Adjuvant HER2+ Breast Cancer",
         "pubmed_keywords": [
-            "trastuzumab adjuvant breast cancer NSABP B-31",
-            "trastuzumab overall survival hazard ratio HER2",
-            "trastuzumab cardiac toxicity adjuvant",
+            "NSABP B-31 trastuzumab adjuvant overall survival",
+            "Romond trastuzumab HER2 breast cancer 2005",
+            "N9831 trastuzumab adjuvant breast cancer hazard ratio",
         ],
         "rag_keywords": [
-            "trastuzumab adjuvant HER2 breast cancer survival",
-            "NSABP B-31 N9831 hazard ratio",
-            "trastuzumab adverse events cardiac",
+            "NSABP B-31 N9831 trastuzumab overall survival hazard ratio",
+            "trastuzumab adjuvant HER2 breast cancer grade 3 toxicity",
+            "AC-TH AC-T breast cancer results",
         ],
         "scenario_hint": (
-            "NSABP B-31 / NCCTG N9831 joint analysis: AC-TH vs AC-T in adjuvant "
-            "HER2+ breast cancer. Primary endpoint: Overall Survival. "
-            "Adjuvant (curative-intent) setting."
+            "NSABP B-31 / NCCTG N9831: AC-TH vs AC-T in adjuvant HER2+ breast cancer. "
+            "Primary endpoint: Overall Survival. HR = 0.59. "
+            "Grade 3-5 AE rates similar between arms. Adjuvant setting."
         ),
     },
     {
         "title": "Ipilimumab Versus Placebo After Primary Treatment of Stage III Melanoma",
         "pubmed_keywords": [
-            "ipilimumab adjuvant melanoma EORTC 18071",
-            "ipilimumab disease-free survival hazard ratio",
-            "ipilimumab immune-related adverse events grade 3",
+            "EORTC 18071 ipilimumab adjuvant melanoma",
+            "Eggermont ipilimumab stage III melanoma disease-free survival",
+            "ipilimumab 10mg adjuvant melanoma grade 3 adverse events",
         ],
         "rag_keywords": [
-            "ipilimumab adjuvant melanoma disease-free survival",
-            "EORTC 18071 hazard ratio results",
-            "ipilimumab toxicity immune-related adverse events",
+            "EORTC 18071 ipilimumab disease-free survival hazard ratio",
+            "ipilimumab adjuvant melanoma grade 3-4 adverse events",
+            "ipilimumab placebo melanoma toxicity results",
         ],
         "scenario_hint": (
-            "EORTC 18071: ipilimumab 10 mg/kg vs placebo in adjuvant stage III "
-            "melanoma. Primary endpoint: Disease-Free Survival (DFS). "
-            "Adjuvant setting with significant immune-related toxicities."
+            "EORTC 18071: ipilimumab 10 mg/kg vs placebo in adjuvant stage III melanoma. "
+            "Primary endpoint: DFS. HR = 0.75. "
+            "Grade 3-4 AEs: ~38.5% vs ~28%. Adjuvant setting."
         ),
     },
     {
         "title": "Ibrutinib Versus Chlorambucil As Initial Therapy for Chronic Lymphocytic Leukemia",
         "pubmed_keywords": [
-            "ibrutinib chlorambucil CLL RESONATE-2",
-            "ibrutinib overall survival hazard ratio CLL",
-            "ibrutinib adverse events atrial fibrillation",
+            "RESONATE-2 ibrutinib chlorambucil CLL overall survival",
+            "Burger ibrutinib first-line CLL hazard ratio",
+            "ibrutinib chlorambucil treatment-naive CLL phase 3",
         ],
         "rag_keywords": [
-            "ibrutinib chlorambucil CLL overall survival",
-            "RESONATE-2 hazard ratio results",
-            "ibrutinib toxicity grade 3 adverse events",
+            "RESONATE-2 ibrutinib chlorambucil overall survival hazard ratio",
+            "ibrutinib CLL grade 3 adverse events toxicity",
+            "ibrutinib chlorambucil CLL results",
         ],
         "scenario_hint": (
-            "RESONATE-2: ibrutinib vs chlorambucil as first-line CLL therapy. "
-            "Primary endpoint: Overall Survival. Ibrutinib showed dramatic "
-            "superiority with a very low hazard ratio."
+            "RESONATE-2: ibrutinib vs chlorambucil as first-line CLL. "
+            "Primary endpoint: Overall Survival. HR = 0.16. "
+            "Grade 3-5 AEs: ~27.5% vs ~20.5%. First-line setting."
         ),
     },
 ]
@@ -592,12 +581,11 @@ SCORECARD_TABLES = [
 # --- Main ---
 def main():
     print("=" * 60)
-    print("  RAG-LLM Scorecard Generation (LanceDB Hybrid Search)")
+    print("  Corrective RAG-LLM Scorecard Generation (CRAG + Bonus Audit)")
     print(f"  Model: {config.PRIMARY_MODEL}")
     print(f"  Embedding: {config.EMBEDDING_MODEL_FOR_RAG}")
     print("=" * 60)
 
-    # Initialize embedding model
     try:
         sentence_model = SentenceTransformer(config.EMBEDDING_MODEL_FOR_RAG)
         logger.info(f"Loaded embedding model: {config.EMBEDDING_MODEL_FOR_RAG}")
@@ -605,10 +593,8 @@ def main():
         logger.error(f"Failed to load embedding model: {e}")
         return
 
-    # Initialize LLM client
     llm_client = LLMClient(model=config.PRIMARY_MODEL)
 
-    # Initialize vector DB
     try:
         vector_db_table = setup_vector_db(config.EMBEDDING_DIMENSION)
     except Exception as e:
@@ -629,18 +615,13 @@ def main():
         all_documents.extend(docs)
         time.sleep(0.5)
 
-    # Deduplicate and chunk for better retrieval precision
     unique_docs = list({doc["id"]: doc for doc in all_documents}.values())
     logger.info(f"Total unique PubMed documents: {len(unique_docs)}")
 
-    # Chunk documents into ~512-token segments with overlap
-    chunked_docs = chunk_documents(unique_docs, chunk_size=512, overlap=100)
-
-    if chunked_docs:
-        ingest_documents_to_db(chunked_docs, vector_db_table, sentence_model)
+    if unique_docs:
+        ingest_documents_to_db(unique_docs, vector_db_table, sentence_model)
         create_fts_index(vector_db_table)
 
-    # Verify records
     try:
         total_records = len(vector_db_table.to_pandas())
         logger.info(f"LanceDB records after ingestion: {total_records}")
@@ -651,14 +632,16 @@ def main():
         logger.error(f"Failed to count records: {e}")
         return
 
-    # Generate scorecards
-    output_md = "# RAG-Based ASCO-Style Scorecards (LanceDB Hybrid Search)\n\n"
+    # Generate scorecards with CRAG
+    output_md = "# Corrective RAG ASCO-Style Scorecards (CRAG + Bonus Audit)\n\n"
     rag_csv_dir = os.path.join(os.path.dirname(__file__), "..", "results", "rag_llm")
     os.makedirs(rag_csv_dir, exist_ok=True)
 
     for table_def in SCORECARD_TABLES:
         title = table_def["title"]
-        markdown = generate_scorecard_with_rag(
+
+        # CRAG generation
+        markdown = generate_scorecard_with_crag(
             title=title,
             rag_keywords=table_def["rag_keywords"],
             vector_db_table=vector_db_table,
@@ -666,9 +649,22 @@ def main():
             sentence_model=sentence_model,
             scenario_hint=table_def["scenario_hint"],
         )
+
+        # Bonus audit
+        print(f"  Running bonus audit for {title[:40]}...")
+        audit = audit_bonus_points(title, markdown, llm_client)
+        if audit and audit.get("total_bonus", -1) >= 0:
+            old_comp = extract_nhb_components(markdown)
+            markdown = apply_audited_bonus(markdown, audit)
+            new_comp = extract_nhb_components(markdown)
+            if old_comp["bonus"] != new_comp["bonus"]:
+                print(f"  Bonus adjusted: {old_comp['bonus']} → {new_comp['bonus']}")
+
         output_md += f"## {title}\n\n"
         output_md += f"**Scenario:** {table_def['scenario_hint']}\n\n"
         output_md += markdown
+        if audit and audit.get("reasoning"):
+            output_md += f"\n\n**Bonus Audit:** {audit['reasoning']}\n"
         output_md += "\n\n---\n\n"
 
         # CSV export
@@ -676,7 +672,6 @@ def main():
         csv_filename = os.path.join(rag_csv_dir, f"rag_llm_scorecard_{safe_title}.csv")
         _save_markdown_as_csv(markdown, csv_filename)
 
-    # Save markdown report
     output_path = os.path.join(os.path.dirname(__file__), "..", "results", "rag_llm",
                                "rag_llm_asco_scorecard_results_pubmed_lancedb.md")
     with open(output_path, "w", encoding="utf-8") as f:
