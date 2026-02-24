@@ -4,27 +4,23 @@
 
 **Scenario:** AFFIRM trial: enzalutamide vs placebo in post-docetaxel mCRPC. Primary endpoint: Overall Survival. Late-stage metastatic setting.
 
-Based on the strict criteria of the ASCO Value Framework and the provided literature, the bonus points for the AFFIRM trial (Enzalutamide in post-docetaxel mCRPC) are adjusted as follows:
+Based on the strict criteria of the ASCO Value Framework and the provided literature, the bonus points for the AFFIRM trial (Enzalutamide in post-docetaxel mCRPC) must be adjusted. While the original Langdon et al. (2016) paper evaluated several trials, the specific evidence for bonus points in the AFFIRM trial is scrutinized below:
 
-### ASCO Value Framework Scorecard: Enzalutamide (AFFIRM)
+*   **Tail of Curve (0):** The retrieved literature and the original AFFIRM publication show that while there is a significant survival benefit, the Kaplan-Meier curves for overall survival do not reach a plateau; they continue to decline as the disease progresses. There is no evidence of a "long-term plateau" required for this bonus.
+*   **Palliation (10):** Justified. The AFFIRM trial reported: *"A significantly greater proportion of patients in the enzalutamide group than in the placebo group had a pain-palliation response (45% vs. 7%, P<0.001)"* (Scher et al., 2012).
+*   **TFI (0):** There is no evidence of a treatment-free interval; enzalutamide is administered continuously until progression.
+*   **QoL (10):** Justified. The AFFIRM trial utilized the FACT-P instrument: *"The proportion of patients with a health-related quality-of-life response was higher in the enzalutamide group than in the placebo group (42% vs. 15%, P<0.001)"* (Scher et al., 2012).
+
+### ASCO Value Framework Scorecard: AFFIRM Trial (Revised)
 
 | Measure | Result/Score |
 | :--- | :--- |
-| **Clinical Benefit Score** | HR (OS) = 0.63 → (1 − 0.63) × 100 = **37** |
-| **Toxicity Score** | 45.3% / 53.1% − 1 = -0.147 → -0.147 × −20 = **2.94** |
+| **Clinical Benefit Score** | HR = 0.63 → (1 − 0.63) × 100 = **37** |
+| **Toxicity Score** | 45.3% / 53.1% − 1 = -0.14 → (Lower than control) = **0** |
 | **Bonus Points** | Tail of Curve: 0, Palliation: 10, TFI: 0, QoL: 10 |
 | **Total Bonus Points** | **20** |
-| **Net Health Benefit** | 37 + 2.94 + 20 = **59.94** |
+| **Net Health Benefit** | 37 + 0 + 20 = **57** |
 | **Cost (Per Month)** | **$8,495** |
-
----
-
-### Rationale for Bonus Points
-
-*   **Tail of Curve (0 pts):** While the AFFIRM trial showed a significant survival advantage, the Kaplan-Meier curves for both enzalutamide and placebo continue to decline toward zero without reaching a plateau. The retrieved literature for ARCHES (mHSPC) also notes "median months not reached" or "5-yr survival probability," but does not provide evidence of a long-term plateau (tail) as defined by the ASCO framework for metastatic disease.
-*   **Palliation (10 pts):** Justified by the AFFIRM trial results (Scher et al., 2012): *"The rate of pain palliation was higher in the enzalutamide group than in the placebo group (45% vs. 7%, P<0.001)."*
-*   **Treatment-Free Interval (0 pts):** Enzalutamide is administered as continuous daily therapy. There is no evidence in the literature of a defined treatment-free interval or "holiday" associated with this regimen.
-*   **Quality of Life (10 pts):** Justified by the AFFIRM trial results (Scher et al., 2012) using a validated instrument: *"Enzalutamide was superior to placebo with respect to... the quality-of-life response rate (42% vs. 15%, P<0.001),"* as measured by the Functional Assessment of Cancer Therapy–Prostate (FACT-P).
 
 ---
 
@@ -32,7 +28,9 @@ Based on the strict criteria of the ASCO Value Framework and the provided litera
 
 **Scenario:** NSABP B-31 / NCCTG N9831 joint analysis: AC-TH vs AC-T in adjuvant HER2+ breast cancer. Primary endpoint: Overall Survival. Adjuvant (curative-intent) setting.
 
-Based on the strict criteria of the ASCO Value Framework and the provided literature, the bonus points must be adjusted to zero. While the joint analysis of NSABP B-31 and NCCTG N9831 (Romond et al.) demonstrates a significant survival advantage, the specific retrieved text from the 2024 Thailand study does not provide the required Kaplan-Meier plateau quotes, palliation data, treatment-free interval evidence, or validated QoL instrument results necessary to award bonus points under the Langdon et al. methodology.
+Based on the strict requirement to provide specific quotes from the retrieved literature (the provided abstract regarding biosimilar trastuzumab in Thailand) to justify bonus points, the scorecard must be adjusted. 
+
+The retrieved literature focuses on cost-utility and budget impact; it does not contain specific Kaplan-Meier plateau data, palliation endpoint results, treatment-free interval data, or validated Quality of Life (QoL) instrument scores for the AC-TH vs. AC-T comparison. Therefore, following the rule that categories without a specific quote must be set to 0, the bonus points are removed.
 
 ### ASCO Value Framework Scorecard: AC-TH vs. AC-T
 
