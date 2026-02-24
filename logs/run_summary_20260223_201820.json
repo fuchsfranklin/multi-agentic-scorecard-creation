@@ -1,0 +1,37 @@
+{
+  "timestamp": "20260223_201820",
+  "total_duration_s": 211.1,
+  "log_file": "C:\\Users\\fuchs\\Documents\\GitHub\\multi-agentic-scorecard-creation\\logs\\run_all_20260223_201820.log",
+  "config": {
+    "primary_model": "google/gemini-3-flash-preview",
+    "extraction_model": "google/gemini-2.5-flash",
+    "judge_model": "google/gemini-2.5-flash",
+    "embedding_model": "all-mpnet-base-v2"
+  },
+  "results": [
+    {
+      "approach": "single_llm",
+      "status": "success",
+      "error": null,
+      "duration_s": 23.7
+    },
+    {
+      "approach": "multi_agentic",
+      "status": "success",
+      "error": null,
+      "duration_s": 61.6
+    },
+    {
+      "approach": "rag_llm",
+      "status": "success",
+      "error": null,
+      "duration_s": 75.6
+    },
+    {
+      "step": "evaluation",
+      "status": "success",
+      "error": null,
+      "duration_s": 50.3
+    }
+  ]
+}

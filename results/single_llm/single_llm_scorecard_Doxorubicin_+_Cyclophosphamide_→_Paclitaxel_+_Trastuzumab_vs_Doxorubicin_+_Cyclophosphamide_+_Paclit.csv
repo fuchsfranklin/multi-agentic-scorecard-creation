@@ -1,7 +1,7 @@
 Measure,Result/Score,
-Clinical Benefit Score,HR = 0.63 → (1 - 0.63) × 100 = 37.0,37.0
-Toxicity Score,28% / 24% - 1 = 0.166 → 0.166 × -20 = -3.3,-3.3
-Bonus Points,"Tail of the Curve: 20, Palliation: 0, TFI: 0, QoL: 0",0
-Total Bonus Points,20.0,20.0
-Net Health Benefit,37.0 (CBS) + -3.3 (Tox) + 20.0 (Bonus) = 53.7,53.7
-Cost (1-Year Course),"$54,000","$54,000"
+Clinical Benefit Score,HR (death) = 0.63 → (1 − 0.63) × 100 = 37,37
+Toxicity Score,32% / 29% − 1 = 0.103 → 0.103 × −20 = −2.06,2.06
+Bonus Points,"Tail of Curve: 20, Palliation: 0, TFI: 0, QoL: 0",0
+Total Bonus Points,20,20
+Net Health Benefit,37 − 2.06 + 20 = 54.94,54.94
+Cost (Per Month),"$4,500","$4,500"

@@ -1,7 +1,7 @@
 Measure,Result/Score,
-Clinical Benefit Score,HR = 0.75 → (1 - 0.75) × 100 = 25.0,25.0
-Toxicity Score,42% / 15% - 1 = 1.80 → 1.80 × -20 = -36.0,-36.0
-Bonus Points,"Tail of the Curve: 20, Palliation: 0, TFI: 0, QoL: 0",0
-Total Bonus Points,20.0,20.0
-Net Health Benefit,25.0 (CBS) - 36.0 (Tox) + 20.0 (Bonus) = 9.0,9.0
-Cost (Drug Acquisition),"$158,000","$158,000"
+Clinical Benefit Score,HR (DFS) = 0.75 → (1 − 0.75) × 100 = 25,25
+Toxicity Score,54.1% / 26.2% − 1 = 1.06 → 1.06 × −20 = −21.2,21.2
+Bonus Points,"Tail of Curve: 0, Palliation: 0, TFI: 0, QoL: 0",0
+Total Bonus Points,0,0
+Net Health Benefit,25 − 21.2 + 0 = 3.8,3.8
+Cost (Per Month),"$29,500","$29,500"

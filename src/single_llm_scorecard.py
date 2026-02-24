@@ -203,7 +203,9 @@ def main():
         f.write(f"Date: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n---\n\n")
 
     for i, trial_name in enumerate(TRIAL_NAMES, 1):
-        print(f"\n[{i}/4] Generating scorecard for: {trial_name[:60]}...")
+        # Sanitize trial name for console output (replace → with ->)
+        display_name = trial_name.replace("→", "->")
+        print(f"\n[{i}/4] Generating scorecard for: {display_name[:60]}...")
 
         try:
             markdown = generate_scorecard(trial_name, llm_client)

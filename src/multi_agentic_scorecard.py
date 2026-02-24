@@ -397,12 +397,23 @@ class ExtractionAgent:
             hr_result = self._extract_hr(hr_context, trial_title, attempt=i)
             if hr_result:
                 hr_votes.append(hr_result)
-            logger.info("HR vote %d: %.4f", i + 1,
-                        hr_result.get("hazard_ratio", -1) if hr_result else -1)
+            try:
+                hr_val = float(hr_result.get("hazard_ratio", -1)) if hr_result and hr_result.get("hazard_ratio") else -1
+            except (ValueError, TypeError):
+                hr_val = -1
+            logger.info("HR vote %d: %.4f", i + 1, hr_val)
 
-        # Take median HR from votes
-        hr_values = [v["hazard_ratio"] for v in hr_votes
-                     if 0 < v.get("hazard_ratio", 0) < 2]
+        # Take median HR from votes (safe filter)
+        hr_values = []
+        for v in hr_votes:
+            val = v.get("hazard_ratio")
+            if val is not None:
+                try:
+                    val = float(val)
+                    if 0 < val < 2:
+                        hr_values.append(val)
+                except (ValueError, TypeError):
+                    pass
         if hr_values:
             median_hr = statistics.median(hr_values)
         else:
@@ -417,15 +428,26 @@ class ExtractionAgent:
             tox_result = self._extract_tox_bonus(tox_context, trial_title, attempt=i)
             if tox_result:
                 tox_votes.append(tox_result)
-            logger.info("Tox vote %d: exp=%.1f ctrl=%.1f", i + 1,
-                        tox_result.get("toxicity_experimental", -1) if tox_result else -1,
-                        tox_result.get("toxicity_control", -1) if tox_result else -1)
+            logger.info("Tox vote %d: exp=%s ctrl=%s", i + 1,
+                        tox_result.get("toxicity_experimental", "N/A") if tox_result else "N/A",
+                        tox_result.get("toxicity_control", "N/A") if tox_result else "N/A")
 
-        # Take median toxicity from votes
-        tox_exp_values = [v["toxicity_experimental"] for v in tox_votes
-                          if v.get("toxicity_experimental", 0) > 0]
-        tox_ctrl_values = [v["toxicity_control"] for v in tox_votes
-                           if v.get("toxicity_control", 0) > 0]
+        # Take median toxicity from votes (with safe None handling)
+        tox_exp_values = []
+        tox_ctrl_values = []
+        for v in tox_votes:
+            try:
+                exp_val = float(v.get("toxicity_experimental") or 0)
+                if exp_val > 0:
+                    tox_exp_values.append(exp_val)
+            except (ValueError, TypeError):
+                pass
+            try:
+                ctrl_val = float(v.get("toxicity_control") or 0)
+                if ctrl_val > 0:
+                    tox_ctrl_values.append(ctrl_val)
+            except (ValueError, TypeError):
+                pass
 
         median_tox_exp = statistics.median(tox_exp_values) if tox_exp_values else 0.0
         median_tox_ctrl = statistics.median(tox_ctrl_values) if tox_ctrl_values else 0.0
@@ -544,6 +566,21 @@ class ExtractionAgent:
         snippets = [text[s:e] for s, e in merged[:10]]  # cap at 10 snippets
         return "\n\n[...]\n\n".join(snippets)
 
+    def _ensure_numeric_types(self, result: dict) -> dict:
+        """Convert numeric string fields to actual numbers."""
+        numeric_fields = [
+            "hazard_ratio", "confidence_interval_lower", "confidence_interval_upper",
+            "toxicity_experimental", "toxicity_control", "bonus_tail", "bonus_palliation",
+            "bonus_tfi", "bonus_qol"
+        ]
+        for field in numeric_fields:
+            if field in result and result[field] is not None:
+                try:
+                    result[field] = float(result[field])
+                except (ValueError, TypeError):
+                    result[field] = 0.0
+        return result
+
     def _extract_hr(self, context: str, trial_title: str,
                     attempt: int = 0) -> Dict[str, Any]:
         """Single HR extraction attempt."""
@@ -565,9 +602,9 @@ class ExtractionAgent:
             f"Text:\n{context[:12000]}"
         )
         try:
-            resp = self.llm.generate(prompt, json_schema=HR_EXTRACTION_SCHEMA)
+            resp = self.llm.generate(prompt, expect_json=True)
             result = json.loads(resp) if isinstance(resp, str) else resp
-            return result
+            return self._ensure_numeric_types(result) if result else {}
         except (json.JSONDecodeError, DailyRateLimitError) as e:
             if isinstance(e, DailyRateLimitError):
                 raise RuntimeError("LLMRateLimitExceeded")
@@ -599,9 +636,9 @@ class ExtractionAgent:
             f"Text:\n{context[:15000]}"
         )
         try:
-            resp = self.llm.generate(prompt, json_schema=TOXICITY_BONUS_SCHEMA)
+            resp = self.llm.generate(prompt, expect_json=True)
             result = json.loads(resp) if isinstance(resp, str) else resp
-            return result
+            return self._ensure_numeric_types(result) if result else {}
         except (json.JSONDecodeError, DailyRateLimitError) as e:
             if isinstance(e, DailyRateLimitError):
                 raise RuntimeError("LLMRateLimitExceeded")
@@ -629,7 +666,7 @@ class ExtractionAgent:
             f"Text (extract from this):\n{text[:15000]}"
         )
         try:
-            resp = self.llm.generate(prompt, json_schema=EXTRACTION_SCHEMA)
+            resp = self.llm.generate(prompt, expect_json=True)
             logger.debug("ExtractionAgent raw response: %s", resp[:500])
         except DailyRateLimitError as e:
             logger.error("LLM daily rate limit: %s", e)
@@ -705,20 +742,29 @@ class CalculationAgent:
     """
 
     def calculate_scores(self, metrics: Dict[str, Any]) -> Dict[str, float]:
-        hr = float(metrics.get("hazard_ratio", 1.0))
+        try:
+            hr = float(metrics.get("hazard_ratio") or 1.0)
+        except (ValueError, TypeError):
+            hr = 1.0
         cb_score = (1 - hr) * 100
 
-        tox_exp = float(metrics.get("toxicity_experimental", 0))
-        tox_ctrl = float(metrics.get("toxicity_control", 0))
+        try:
+            tox_exp = float(metrics.get("toxicity_experimental") or 0)
+        except (ValueError, TypeError):
+            tox_exp = 0.0
+        try:
+            tox_ctrl = float(metrics.get("toxicity_control") or 0)
+        except (ValueError, TypeError):
+            tox_ctrl = 0.0
 
-        if tox_ctrl > 0 and tox_exp > 0:
+        if tox_ctrl and tox_ctrl > 0 and tox_exp and tox_exp > 0:
             tox_score = ((tox_exp / tox_ctrl) - 1) * -20
             tox_score = max(tox_score, -20.0)
         else:
             tox_score = 0.0
 
         bonus = sum(
-            float(metrics.get(k, 0))
+            float(metrics.get(k, 0) or 0)
             for k in ["bonus_tail", "bonus_palliation", "bonus_tfi", "bonus_qol"]
         )
 
