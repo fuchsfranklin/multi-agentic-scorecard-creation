@@ -467,7 +467,9 @@ def _save_markdown_as_csv(md_table: str, csv_filename: str):
             m = re.search(r"(\$[\d,]+(?:\.\d{1,2})?)", desc)
             value = m.group(1) if m else ""
         else:
-            nums = re.findall(r"(-?\d+\.?\d*)", desc)
+            # Normalize Unicode minus (U+2212) to ASCII hyphen-minus
+            normalized = desc.replace('\u2212', '-')
+            nums = re.findall(r"(-?\d+\.?\d*)", normalized)
             if nums:
                 value = nums[-1]
         measure = cols[0].replace("**", "").strip()

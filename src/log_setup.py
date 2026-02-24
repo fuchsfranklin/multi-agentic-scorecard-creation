@@ -85,5 +85,22 @@ class TeeWriter:
         self.original.flush()
         self.log_file.flush()
 
+    def isatty(self):
+        """Delegate isatty check to the underlying stream.
+
+        Required by libraries like HuggingFace/sentence-transformers that check
+        sys.stdout.isatty() during model loading (e.g., for progress bars).
+        """
+        return getattr(self.original, 'isatty', lambda: False)()
+
+    @property
+    def encoding(self):
+        """Return encoding of the underlying stream (needed by some libraries)."""
+        return getattr(self.original, 'encoding', 'utf-8')
+
+    def fileno(self):
+        """Return file descriptor of the underlying stream (needed by tqdm, etc.)."""
+        return self.original.fileno()
+
     def close(self):
         self.log_file.close()

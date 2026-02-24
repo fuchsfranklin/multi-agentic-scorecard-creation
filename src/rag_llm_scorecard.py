@@ -366,20 +366,22 @@ def extract_nhb_components(markdown: str) -> dict:
     result = {"cbs": 0.0, "tox": 0.0, "bonus": 0.0, "nhb": 0.0}
     for line in markdown.splitlines():
         lower = line.lower()
+        # Normalize Unicode minus (U+2212) to ASCII hyphen-minus for regex
+        normalized = line.replace("**", "").replace('\u2212', '-')
         if "clinical benefit score" in lower:
-            nums = re.findall(r'-?\d+\.?\d*', line.replace("**", ""))
+            nums = re.findall(r'-?\d+\.?\d*', normalized)
             if nums:
                 result["cbs"] = float(nums[-1])
         elif "toxicity score" in lower and "total" not in lower:
-            nums = re.findall(r'-?\d+\.?\d*', line.replace("**", ""))
+            nums = re.findall(r'-?\d+\.?\d*', normalized)
             if nums:
                 result["tox"] = float(nums[-1])
         elif "total bonus" in lower:
-            nums = re.findall(r'-?\d+\.?\d*', line.replace("**", ""))
+            nums = re.findall(r'-?\d+\.?\d*', normalized)
             if nums:
                 result["bonus"] = float(nums[-1])
         elif "net health benefit" in lower:
-            nums = re.findall(r'-?\d+\.?\d*', line.replace("**", ""))
+            nums = re.findall(r'-?\d+\.?\d*', normalized)
             if nums:
                 result["nhb"] = float(nums[-1])
     return result
@@ -487,7 +489,9 @@ def _save_markdown_as_csv(md_table: str, csv_filename: str):
             m = re.search(r"(\$[\d,]+(?:\.\d{1,2})?)", desc)
             value = m.group(1) if m else ""
         else:
-            nums = re.findall(r"(-?\d+\.?\d*)", desc)
+            # Normalize Unicode minus (U+2212) to ASCII hyphen-minus
+            normalized = desc.replace('\u2212', '-')
+            nums = re.findall(r"(-?\d+\.?\d*)", normalized)
             if nums:
                 value = nums[-1]
         measure = cols[0].replace("**", "").strip()

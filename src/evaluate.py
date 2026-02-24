@@ -58,13 +58,17 @@ def find_csv_for_trial(approach_dir: Path, trial_name: str) -> Optional[Path]:
 
 def _extract_number(text: str) -> float:
     """Extract the first number (possibly negative/decimal) from a string."""
-    m = re.search(r'-?\d+\.?\d*', str(text).replace(',', ''))
+    # Normalize Unicode minus (U+2212) to ASCII hyphen-minus before extraction
+    normalized = str(text).replace(',', '').replace('\u2212', '-')
+    m = re.search(r'-?\d+\.?\d*', normalized)
     return float(m.group()) if m else 0.0
 
 
 def _extract_last_number(text: str) -> float:
     """Extract the last number from a string (used for the final score column)."""
-    nums = re.findall(r'-?\d+\.?\d*', str(text).replace(',', ''))
+    # Normalize Unicode minus (U+2212) to ASCII hyphen-minus before extraction
+    normalized = str(text).replace(',', '').replace('\u2212', '-')
+    nums = re.findall(r'-?\d+\.?\d*', normalized)
     return float(nums[-1]) if nums else 0.0
 
 
@@ -209,41 +213,76 @@ def run_deepeval_metrics(all_results: dict) -> dict:
         print("No OPENROUTER_API_KEY set. Skipping deepeval metrics.", file=sys.stderr)
         return {}
 
-    class OpenRouterLLM(DeepEvalBaseLLM):
-        """Custom LLM wrapper for OpenRouter via requests.
-        
-        Uses requests instead of openai SDK to avoid corporate SSL/proxy issues.
-        Works with any OpenRouter model (reasoning or standard).
-        """
-        def __init__(self):
-            self._url = f"{base_url}/chat/completions"
-            super().__init__(model=model_name)
+    # Reasoning models (GPT-5 family, o3/o4-mini) reject temperature != 1.
+    # deepeval's GEval internally sends temperature=0, which causes 400 errors.
+    # We must strip temperature from the request for reasoning models.
+    _REASONING_MODELS = {
+        "openai/o3-mini", "openai/o4-mini", "openai/o3", "openai/o3-pro",
+        "openai/gpt-5", "openai/gpt-5-mini", "openai/gpt-5-nano",
+        "openai/gpt-5.1", "openai/gpt-5.1-mini",
+        "openai/gpt-5.2", "openai/gpt-5.2-chat",
+        "openai/gpt-5.3-codex",
+    }
+    is_reasoning_judge = model_name in _REASONING_MODELS
 
-        def load_model(self):
-            return self._url
+    # Try native OpenRouterModel first (available in recent deepeval versions).
+    # Falls back to custom DeepEvalBaseLLM wrapper if not available.
+    judge_llm = None
+    try:
+        from deepeval.models import OpenRouterModel
+        judge_llm = OpenRouterModel(
+            model=model_name,
+            api_key=api_key,
+            base_url=base_url,
+            # For reasoning models, don't set temperature (let it default to 1).
+            # For standard models, use 0 for deterministic scoring.
+            **({"temperature": 0.0} if not is_reasoning_judge else {}),
+        )
+        print(f"Using deepeval native OpenRouterModel for judge: {model_name}")
+    except (ImportError, TypeError):
+        pass
 
-        def generate(self, prompt: str, **kwargs) -> str:
-            import requests as req
-            headers = {
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            }
-            payload = {
-                "model": model_name,
-                "messages": [{"role": "user", "content": prompt}],
-            }
-            resp = req.post(self._url, json=payload, headers=headers)
-            resp.raise_for_status()
-            data = resp.json()
-            return data["choices"][0]["message"]["content"].strip()
+    if judge_llm is None:
+        class OpenRouterLLM(DeepEvalBaseLLM):
+            """Custom LLM wrapper for OpenRouter via requests.
 
-        async def a_generate(self, prompt: str, **kwargs) -> str:
-            return self.generate(prompt)
+            Uses requests instead of openai SDK to avoid corporate SSL/proxy issues.
+            Works with any OpenRouter model (reasoning or standard).
+            """
+            def __init__(self):
+                self._url = f"{base_url}/chat/completions"
+                super().__init__(model=model_name)
 
-        def get_model_name(self) -> str:
-            return model_name
+            def load_model(self):
+                return self._url
 
-    judge_llm = OpenRouterLLM()
+            def generate(self, prompt: str, **kwargs) -> str:
+                import requests as req
+                headers = {
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                }
+                payload = {
+                    "model": model_name,
+                    "messages": [{"role": "user", "content": prompt}],
+                }
+                # Only add temperature for non-reasoning models.
+                # GPT-5 family rejects temperature != 1 with HTTP 400.
+                if not is_reasoning_judge:
+                    payload["temperature"] = 0.0
+                resp = req.post(self._url, json=payload, headers=headers)
+                resp.raise_for_status()
+                data = resp.json()
+                return data["choices"][0]["message"]["content"].strip()
+
+            async def a_generate(self, prompt: str, **kwargs) -> str:
+                return self.generate(prompt)
+
+            def get_model_name(self) -> str:
+                return model_name
+
+        judge_llm = OpenRouterLLM()
+        print(f"Using custom OpenRouterLLM wrapper for judge: {model_name}")
 
     # Define GEval metrics with explicit evaluation_steps to:
     # 1. Skip the step-generation LLM call (saves 3 API calls)

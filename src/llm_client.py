@@ -95,8 +95,8 @@ class LLMClient:
             today = datetime.date.today().isoformat()
             if usage.get("date") != today:
                 usage = {"date": today, "count": 0, "last_call": 0}
-            if usage["count"] >= 200:
-                raise DailyRateLimitError("Daily usage limit reached (200 calls)")
+            if usage["count"] >= 2000:
+                raise DailyRateLimitError("Daily usage limit reached (2000 calls)")
             now_ts = time.time()
             elapsed = now_ts - usage.get("last_call", 0)
             if elapsed < 2:

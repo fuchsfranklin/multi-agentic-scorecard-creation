@@ -39,7 +39,11 @@ OPENROUTER_API_HOST = os.getenv("OPENROUTER_API_HOST", "https://openrouter.ai/ap
 # Model assignments (override via .env if desired)
 PRIMARY_MODEL = os.getenv("PRIMARY_MODEL", "google/gemini-3-flash-preview")
 EXTRACTION_MODEL = os.getenv("EXTRACTION_MODEL", "openai/gpt-5.1-mini")
-JUDGE_MODEL = os.getenv("JUDGE_MODEL", "openai/gpt-5.1-mini")
+# JUDGE_MODEL: Used for deepeval GEval LLM-as-judge metrics.
+#   Default: google/gemini-3-flash-preview — non-reasoning model that supports
+#   temperature=0 (required by deepeval GEval). GPT-5.1-mini is a reasoning model
+#   that rejects temperature != 1, causing 400 errors with deepeval.
+JUDGE_MODEL = os.getenv("JUDGE_MODEL", "google/gemini-3-flash-preview")
 
 # Legacy alias kept for backward compatibility
 OPENROUTER_RAG_MODEL = os.getenv("OPENROUTER_RAG_MODEL", PRIMARY_MODEL)

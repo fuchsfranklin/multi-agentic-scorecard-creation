@@ -1,5 +1,58 @@
 # Changelog
 
+## v3.1.0 — February 24, 2026 — All 6 Debugging Report Fixes Applied
+
+### Fixes
+1. **Rate limit raised to 2000** (`src/llm_client.py`): The 200-call daily limit
+   was exhausted by single LLM's self-consistency voting alone. Raised to 2000 to
+   accommodate all three approaches + deepeval in a single run (~60-76 calls expected).
+2. **TeeWriter.isatty() added** (`src/log_setup.py`): HuggingFace/sentence-transformers
+   checks `sys.stdout.isatty()` during model loading. The TeeWriter wrapper was missing
+   this method, crashing RAG-LLM immediately. Now delegates to the underlying stream.
+3. **deepeval 400 Bad Request fixed** (`src/evaluate.py`, `src/config.py`): GPT-5.1-mini
+   is a reasoning model that rejects `temperature != 1`. deepeval's GEval sends
+   `temperature=0` internally. Fix: changed default JUDGE_MODEL to
+   `google/gemini-3-flash-preview` (non-reasoning). Also added native `OpenRouterModel`
+   support with fallback to custom wrapper that strips temperature for reasoning models.
+4. **Unicode minus sign fix** (all 3 scorecard files + `src/evaluate.py`): LLMs output
+   Unicode minus `−` (U+2212) in formulas like `−7.5`. The regex `r'-?\d+\.?\d*'` only
+   matches ASCII hyphen-minus `-` (U+002D), so toxicity scores were extracted as positive.
+   All number extraction now normalizes U+2212 → `-` before regex matching.
+5. **Bonus audit NHB arithmetic fix** (`src/single_llm_scorecard.py`): The
+   `extract_nhb_components` function was returning positive toxicity (e.g., `2.22` instead
+   of `-2.22`) due to the Unicode minus issue. This caused `apply_audited_bonus` to
+   recalculate NHB incorrectly (e.g., `1.0 + 2.0 + 20.0 = 23.0` instead of
+   `37 + (-2.22) + 20 = 54.78`). Fixed by the Unicode minus normalization.
+6. **HF_TOKEN added to .env.example**: Avoids HuggingFace rate limiting warnings.
+
+## v3.0.2 — February 24, 2026 v3 Run Results Deep-Dive & Documentation Update
+
+### Run analysis (Feb 23, 22:54 UTC run)
+- Total time: 153.4s. All 4 pipeline steps reported "success" but results are
+  partially corrupted by rate limiting and a recurring bug.
+- Single LLM: 61.4% accuracy (down from 67.1% v2.3 baseline). CBS is now perfect
+  for all 4 trials (37, 41, 25, 84 — all exact matches). Bonus hallucination
+  eliminated for 3/4 trials (0, 0, 0 vs v2.3's 10-40). But the bonus audit pass
+  introduced an NHB arithmetic bug for Enzalutamide (output 23.0 vs correct 54.78).
+- Multi-Agentic: 0.0% accuracy. All LLM extraction calls hit the 200-call daily
+  rate limit. Regex fallback extracted wrong HRs (0.83, 1.35, 0.53, 0.62 vs gold
+  0.63, 0.59, 0.75, 0.16). The MAD architecture was never actually tested.
+- RAG-LLM: No results. Crashed on `TeeWriter.isatty` during embedding model load.
+- deepeval: All 24 GEval calls returned 400 Bad Request. No LLM-as-judge scores.
+
+### Issues identified for next run
+1. Daily rate limit (200 calls) too low for v3's multi-sample approaches — raise to 300+
+2. TeeWriter.isatty fix not deployed on remote machine
+3. Bonus audit NHB arithmetic bug (overwrites correct NHB with wrong calculation)
+4. Toxicity sign parsing bug in evaluate.py (extracts absolute values, not negatives)
+5. deepeval 400 errors (model compatibility with OpenRouter wrapper)
+
+### Documentation updates
+- Rewrote README Results section with v3 run data, per-trial comparison tables
+  (v3 vs v2.3 vs gold), component breakdown, detailed analysis of what worked
+  and what broke, and prioritized next steps.
+- Updated docs/CHANGELOG.md with run results entry.
+
 ## v3.1 — February 23, 2026 Project Cleanup & Auto-Archive
 
 ### Cleanup

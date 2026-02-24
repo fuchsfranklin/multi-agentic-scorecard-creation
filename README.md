@@ -91,9 +91,74 @@ These are the published reference values we're trying to match.
 
 ## Results
 
+### v3 run (Feb 23, 2026) — current results
+
+Run configuration: Gemini 3 Flash Preview (generation), GPT-5.1-mini (extraction/judge), all-mpnet-base-v2 (embeddings). Total time: 153.4s. All 4 pipeline steps reported "success" but two approaches were severely impacted by a **daily rate limit hit** (200 calls) partway through the run.
+
+| Approach | Accuracy (100−MAPE) | MAPE | Pearson r | Trials | Status |
+|----------|--------------------:|-----:|----------:|-------:|--------|
+| Single LLM | 61.4% | 38.6% | 0.442 | 4 | Partial (rate-limited on last bonus audit) |
+| Multi-Agentic | 0.0% | 120.6% | 0.021 | 4 | **Broken** (all extractions rate-limited) |
+| RAG-LLM | N/A | N/A | N/A | 0 | **Failed** (TeeWriter.isatty crash) |
+
+### What went wrong in this run
+
+Three separate issues corrupted the results:
+
+1. **Daily rate limit exhaustion (200 calls).** Single LLM now uses 3-sample self-consistency + bonus audit = ~16 LLM calls. It consumed nearly all 200 daily calls during its 116s run. By the time multi-agentic started, the limit was hit. Every extraction call failed with `Daily usage limit reached (200 calls)`, so the multi-agentic pipeline fell back to regex-extracted HRs from PubMed text (which were wrong for every trial) and zero toxicity across the board.
+
+2. **RAG-LLM crashed on `TeeWriter.isatty`.** The log shows: `Failed to load embedding model: 'TeeWriter' object has no attribute 'isatty'`. This is the same bug from v2.3 that was supposedly fixed in `src/log_setup.py`. The fix either wasn't pulled to the remote machine, or the v3 rewrite of `rag_llm_scorecard.py` introduced a different code path that triggers it. RAG-LLM produced zero output files.
+
+3. **deepeval hit 400 Bad Request.** All 24 deepeval GEval calls returned `400 Client Error: Bad Request`. This is likely a model compatibility issue with the OpenRouter endpoint for GPT-5.1-mini when used through deepeval's API wrapper. No LLM-as-judge scores were produced.
+
+### Per-trial NHB comparison (v3 vs v2.3 baseline vs gold)
+
+| Trial | Gold NHB | Single LLM v3 | Single LLM v2.3 | Multi-Agentic v3 | Multi-Agentic v2.3 | RAG-LLM v3 | RAG-LLM v2.3 |
+|-------|:--------:|:--------------:|:----------------:|:-----------------:|:------------------:|:----------:|:------------:|
+| Enzalutamide (Prostate) | 70.8 | 23.0 ↓ | 53.9 | 17.0 ↓ | 0.0 | — | 53.3 |
+| AC-TH (Breast) | 41.0 | **41.0** ✓ | 53.7 | −35.0 ↓↓ | 31.5 | — | 66.8 |
+| Ipilimumab (Melanoma) | 17.4 | 32.5 | 11.8 | 47.0 | 34.0 | — | 9.0 |
+| Ibrutinib (CLL) | 77.2 | **77.2** ✓ | 111.8 | 38.0 ↓ | 42.0 | — | 121.8 |
+
+### Per-trial component breakdown (v3 run)
+
+| Trial | Gold CBS | Single CBS | Multi CBS | Gold Tox | Single Tox | Multi Tox | Gold Bonus | Single Bonus | Multi Bonus |
+|-------|:--------:|:----------:|:---------:|:--------:|:----------:|:---------:|:----------:|:------------:|:-----------:|
+| Enzalutamide | 37.0 | **37.0** ✓ | 17.0 ✗ | −2.2 | 2.2 ✗ | 0.0 ✗ | 36.0 | 20.0 | 0.0 |
+| AC-TH | 41.0 | **41.0** ✓ | −35.0 ✗ | 0.0 | **0.0** ✓ | 0.0 ✓ | 0.0 | **0.0** ✓ | **0.0** ✓ |
+| Ipilimumab | 25.0 | **25.0** ✓ | 47.0 ✗ | −7.6 | 7.5 ✗ | 0.0 ✗ | 0.0 | **0.0** ✓ | **0.0** ✓ |
+| Ibrutinib | 84.0 | **84.0** ✓ | 38.0 ✗ | −6.8 | 6.8 ✗ | 0.0 ✗ | 0.0 | **0.0** ✓ | **0.0** ✓ |
+
+### Analysis
+
+**Single LLM (61.4% accuracy, down from 67.1%):**
+The v3 self-consistency + bonus audit approach shows clear improvements in some areas but a regression overall:
+- CBS is now **perfect for all 4 trials** (37, 41, 25, 84 — all exact matches). This is a significant improvement; v2.3 also got 3/4 but the self-consistency voting locked in the correct values.
+- Bonus points are now **correct for 3/4 trials** (0, 0, 0). The bonus audit successfully eliminated hallucinated bonus for AC-TH, Ipilimumab, and Ibrutinib. This is a major fix — v2.3 gave 10-40 bonus to all 4 trials.
+- Enzalutamide bonus is 20 (gold: 36). The model correctly identified palliation (10) and QoL (10) but missed tail-of-curve (16). This is actually reasonable — tail-of-curve is the hardest bonus to assess.
+- **Toxicity sign is wrong.** The evaluation report shows positive toxicity values (2.2, 7.5, 6.8) where the gold standard has negative values (−2.2, −7.6, −6.8). This is a CSV parsing issue in `evaluate.py` — the toxicity formula produces negative numbers but the CSV parser is extracting the absolute value. The actual scorecard markdown shows the correct negative values and correct NHB arithmetic.
+- **NHB for Enzalutamide (23.0 vs gold 70.8):** The markdown shows `1.0 + (2.0) + 20.0 = 23.0` which is wrong arithmetic — it should be `37 − 2.22 + 20 = 54.78`. The self-consistency voting picked median NHB=54.78 (correct), but the bonus audit pass appears to have regenerated the scorecard with broken arithmetic in the final output. This is a bug in the bonus audit implementation.
+- **AC-TH and Ibrutinib are exact matches** (41.0 and 77.2). These are genuinely excellent results.
+
+**Multi-Agentic (0.0% accuracy, down from 34.0%):**
+This is entirely a rate limit failure, not a methodology failure. Every extraction call hit `Daily usage limit reached (200 calls)` and fell back to regex HR extraction from PubMed text. The regex picked up wrong HRs:
+- Enzalutamide: HR=0.83 (gold: 0.63) — likely grabbed a secondary endpoint HR
+- AC-TH: HR=1.35 (gold: 0.59) — grabbed an inverted or wrong HR entirely
+- Ipilimumab: HR=0.53 (gold: 0.75) — wrong endpoint
+- Ibrutinib: HR=0.62 (gold: 0.16) — wrong trial's HR again
+- All toxicity values are 0.0 because the LLM never ran
+
+The v3 architecture (MAD with debate + direct NCT lookup) was never actually tested because no LLM calls succeeded. The 9-second runtime (vs expected 60-120s) confirms this.
+
+**RAG-LLM (no results):**
+Crashed immediately on `TeeWriter.isatty` during embedding model load. Zero output files produced. The `isatty()` fix needs to be verified on the remote machine.
+
+**deepeval (all N/A):**
+All 24 GEval calls returned `400 Bad Request`. This needs investigation — possibly a deepeval version incompatibility with the OpenRouter wrapper, or the GPT-5.1-mini model doesn't support the specific API format deepeval uses.
+
 ### Pre-v3 baseline (Feb 21, 2026 run, v2.3 methods)
 
-These results are from the v2.3 pipeline before the v3 methodological overhaul. They serve as the baseline to beat. The remote machine's `.env` had `EXTRACTION_MODEL=openai/gpt-4.1-mini` instead of the `gpt-5.1-mini` default, so multi-agentic extraction ran on the legacy model. Full per-trial breakdown in `results/evaluation_report.md`.
+These results are from the v2.3 pipeline before the v3 methodological overhaul. The remote machine's `.env` had `EXTRACTION_MODEL=openai/gpt-4.1-mini` instead of the `gpt-5.1-mini` default. Full per-trial breakdown in `results/archive/v2.3_20260221/evaluation_report.md`.
 
 | Approach | Accuracy (100−MAPE) | MAPE | Pearson r | Trials |
 |----------|--------------------:|-----:|----------:|-------:|
@@ -101,49 +166,37 @@ These results are from the v2.3 pipeline before the v3 methodological overhaul. 
 | Multi-Agentic | 34.0% | 66.0% | −0.274 | 4 |
 | RAG-LLM | 51.6% | 48.4% | 0.808 | 4 |
 
-### What the v2.3 numbers told us (pre-v3 baseline)
-
-Single LLM came out on top. Gemini 3 Flash nailed the hazard ratios for all four trials (3 out of 4 CBS values matched the gold standard exactly), but overestimated bonus points across the board. The model "wants" to award tail-of-curve, palliation, and QoL bonuses even when the gold standard gives zero. That's the main error source: bonus inflation pushed Ibrutinib to 111.8 (gold: 77.2) and pulled Enzalutamide down to 53.9 (gold: 70.8, because it under-awarded tail-of-curve at 0 vs 16).
-
-Multi-agentic had the worst accuracy. The Enzalutamide trial extracted `HR = 1.0` and all-zero toxicity/bonus values, producing NHB = 0.0 against a gold standard of 70.8. The extraction agent pulled 9 NCT IDs and 861K chars of corpus text, but couldn't find the right HR. For Ibrutinib, it extracted HR = 0.63 instead of 0.16 (wrong trial's HR). Zero bonus points across all four trials.
-
-RAG-LLM landed in the middle. Same bonus inflation as single LLM, plus worse toxicity estimates. Hybrid search fell back to pure vector search because `tantivy` wasn't installed.
-
-### What v3 changes to address these
-
-1. Bonus hallucination → Self-Consistency voting (single LLM) and two-pass bonus audit (single LLM + RAG) should reduce over-award. The zero-bonus calibration example (Ibrutinib, 0 bonus) teaches the model that most trials get 0.
-2. Extraction failures → MAD with hard-coded NCT IDs and PubMed-first extraction (multi-agentic) eliminates the corpus-drowning problem entirely.
-3. Toxicity guessing → Explicit AE rate hints in scenario contexts give the model actual numbers instead of forcing it to guess.
-4. Wrong formulas → Deep Outputs now has mandatory ASCO formulas embedded in the MoA prompt.
-
-Run the v3 pipeline with `python run_all.py` to see the updated numbers.
-
-### Per-trial NHB comparison
-
-| Trial | Gold NHB | Single LLM | Multi-Agentic | RAG-LLM |
-|-------|:--------:|:----------:|:-------------:|:-------:|
-| Enzalutamide (Prostate) | 70.8 | 53.9 | 0.0 | 53.3 |
-| AC-TH (Breast) | 41.0 | 53.7 | 31.5 | 66.8 |
-| Ipilimumab (Melanoma) | 17.4 | 11.8 | 34.0 | 9.0 |
-| Ibrutinib (CLL) | 77.2 | 111.8 | 42.0 | 121.8 |
-
-### Error sources (v2.3, addressed in v3)
-
-1. Bonus point hallucination → v3 adds Self-Consistency voting, two-pass bonus audit, and zero-bonus calibration example.
-2. Multi-agentic extraction failures → v3 uses hard-coded NCT IDs, PubMed-first extraction, and Multi-Agent Debate.
-3. Toxicity estimation variance → v3 provides explicit AE rate hints in scenario contexts.
-
-### Deep Outputs (MOA engine, separate pipeline)
-
-The MOA-DeepOutputs engine runs the same 4 trials through a mixture-of-agents architecture. Previous versions used invented formulas (e.g., `(1 - HR) × 25` instead of `(1 - HR) × 100`), producing non-comparable NHB values. v3 embeds the mandatory ASCO formulas directly in the MoA prompt and includes a fallback to direct LLM generation if the MoA engine is unavailable. Results from the v2.3 run (in `results/deep_outputs/`) are not comparable to the gold standard due to the formula errors. Re-run with v3 to get corrected scores.
-
 ## Next steps
 
-1. Run the v3 pipeline on the remote machine with `python run_all.py --with-deepeval` and compare against the v2.3 baseline above.
-2. Update the remote `.env` to remove any `EXTRACTION_MODEL=openai/gpt-4.1-mini` override (the default `gpt-5.1-mini` in config.py is correct).
-3. Verify `tantivy` is installed on the remote machine for RAG hybrid search.
-4. If bonus audit doesn't fully eliminate hallucination, consider adding a third pass that cross-references bonus claims against the retrieved PubMed abstracts.
-5. Integrate OpenFDA drug labeling data for cost estimates (currently hypothesized by the LLM).
+### Critical fixes for next run (must do)
+
+1. **Increase daily rate limit.** The 200-call limit in `llm_client.py` is too low for v3's multi-sample approaches. Single LLM alone uses ~16 calls, multi-agentic needs ~12, RAG needs ~12, deepeval needs ~36. That's ~76 calls minimum. Either raise the limit to 300+ or add per-approach budgeting so one approach can't starve the others.
+2. **Fix TeeWriter.isatty on remote machine.** The `src/log_setup.py` fix from v2.4.1 is either not deployed or the v3 rewrite introduced a new code path. Verify the fix is present: `TeeWriter` must have an `isatty()` method that returns `False`.
+3. **Fix the Enzalutamide NHB arithmetic bug.** The bonus audit pass regenerated the scorecard with `1.0 + (2.0) + 20.0 = 23.0` instead of `37 − 2.22 + 20 = 54.78`. The self-consistency voting correctly computed 54.78 but the audit overwrote it with broken arithmetic. The audit should only modify bonus values, not recompute the entire scorecard.
+4. **Fix toxicity sign in evaluate.py CSV parsing.** The parser extracts absolute values (2.2, 7.5, 6.8) instead of the actual negative toxicity scores (−2.2, −7.5, −6.8). This inflates the error calculation.
+5. **Debug deepeval 400 errors.** Check if the deepeval wrapper is sending an incompatible request format to OpenRouter for GPT-5.1-mini. May need to update the `DeepEvalBaseLLM` wrapper or switch the judge model.
+
+### Run order for next attempt
+
+Run approaches sequentially with rate limit awareness:
+1. `python run_all.py --only multi_agentic` (test MAD architecture first, ~12 calls)
+2. `python run_all.py --only rag_llm` (test CRAG + bonus audit, ~12 calls)
+3. `python run_all.py --only single_llm` (self-consistency, ~16 calls)
+4. `python run_all.py` (full run once individual approaches work)
+
+### What the v3 data actually tells us (despite the failures)
+
+The single LLM results, while partially corrupted by the audit bug, show that:
+- **CBS extraction is solved.** 4/4 exact matches. Self-consistency voting locks in the correct HR.
+- **Bonus hallucination is mostly solved.** 3/4 trials correctly got 0 bonus. The audit pass works.
+- **Enzalutamide bonus (20 vs gold 36)** is the remaining gap. The model finds palliation and QoL evidence but misses tail-of-curve. This may be an inherent limitation — tail-of-curve requires visual KM curve interpretation.
+- **The audit pass has a bug** that corrupts the final NHB for Enzalutamide. Fix this and single LLM accuracy should jump significantly.
+
+### Future improvements
+
+1. Ensemble approach: take the best component from each method (CBS from single LLM, toxicity from multi-agentic with real data, bonus from audit).
+2. Cost data integration via OpenFDA drug labeling API.
+3. Expand to more trials beyond the 4 in Langdon et al.
 
 ## Data sources
 
