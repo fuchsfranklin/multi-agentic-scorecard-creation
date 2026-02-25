@@ -7,6 +7,7 @@ are benchmarked. Source: README.md tables, derived from the published paper.
 
 TRIALS = [
     {
+        "trial_id": "trial_001",
         "name": "Enzalutamide Versus Placebo After Chemotherapy in Metastatic Adenocarcinoma of Prostate",
         "short_name": "Enzalutamide vs Placebo (Prostate)",
         "endpoint": "OS",
@@ -22,6 +23,7 @@ TRIALS = [
         "cost": "$8,495 per month",
     },
     {
+        "trial_id": "trial_002",
         "name": "Doxorubicin + Cyclophosphamide → Paclitaxel + Trastuzumab vs Doxorubicin + Cyclophosphamide + Paclitaxel in Adjuvant HER2+ Breast Cancer",
         "short_name": "AC-TH vs AC-T (HER2+ Breast)",
         "endpoint": "OS",
@@ -37,6 +39,7 @@ TRIALS = [
         "cost": "$73,166 total course",
     },
     {
+        "trial_id": "trial_003",
         "name": "Ipilimumab Versus Placebo After Primary Treatment of Stage III Melanoma",
         "short_name": "Ipilimumab vs Placebo (Melanoma)",
         "endpoint": "DFS",
@@ -52,6 +55,7 @@ TRIALS = [
         "cost": "$458,858 total course",
     },
     {
+        "trial_id": "trial_004",
         "name": "Ibrutinib Versus Chlorambucil As Initial Therapy for Chronic Lymphocytic Leukemia",
         "short_name": "Ibrutinib vs Chlorambucil (CLL)",
         "endpoint": "OS",
@@ -70,6 +74,12 @@ TRIALS = [
 
 # Quick-access lookup by full trial name
 TRIALS_BY_NAME = {t["name"]: t for t in TRIALS}
+
+# Trial ID mapping for shorter file names
+TRIAL_ID_BY_NAME = {t["name"]: t["trial_id"] for t in TRIALS}
+
+# Reverse mapping: trial_id to trial name
+NAME_BY_TRIAL_ID = {t["trial_id"]: t["name"] for t in TRIALS}
 
 # Ordered list of trial names (canonical order used across all approaches)
 TRIAL_NAMES = [t["name"] for t in TRIALS]

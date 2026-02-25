@@ -30,7 +30,7 @@ import json
 import datetime
 from llm_client import LLMClient
 import config
-from gold_standard import TRIAL_NAMES
+from gold_standard import TRIAL_NAMES, TRIAL_ID_BY_NAME
 
 # Trial scenario hints — includes published AE rates to reduce toxicity guessing
 TRIAL_SCENARIOS = {
@@ -310,8 +310,8 @@ def parse_and_save_csv(markdown: str, trial_name: str, csv_dir: str) -> str:
     if table_rows and table_rows[0][0].lower() != "measure":
         table_rows.insert(0, ["Measure", "Description/Formula", "Final Value"])
 
-    safe_name = re.sub(r'[\\/*?:"<>|]', "", trial_name).replace(" ", "_")[:100]
-    csv_path = os.path.join(csv_dir, f"single_llm_scorecard_{safe_name}.csv")
+    trial_id = TRIAL_ID_BY_NAME.get(trial_name, "unknown")
+    csv_path = os.path.join(csv_dir, f"single_llm_scorecard_{trial_id}.csv")
 
     if len(table_rows) > 1:
         with open(csv_path, "w", newline="", encoding="utf-8") as f:

@@ -41,7 +41,7 @@ from typing import Dict, Any, List, Optional
 from Bio import Entrez
 from llm_client import LLMClient, DailyRateLimitError
 import config
-from gold_standard import TRIAL_NAMES
+from gold_standard import TRIAL_NAMES, TRIAL_ID_BY_NAME
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -543,8 +543,8 @@ class MultiAgentScorecardGenerator:
             md_table = self.process_trial(t)
             report += md_table + "\n\n---\n\n"
 
-            safe_title = re.sub(r'[\\/*?:"<>|]', "", t).replace(" ", "_")[:100]
-            csv_filename = os.path.join(csv_dir, f"multi_agentic_scorecard_{safe_title}.csv")
+            trial_id = TRIAL_ID_BY_NAME.get(t, "unknown")
+            csv_filename = os.path.join(csv_dir, f"multi_agentic_scorecard_{trial_id}.csv")
             _save_markdown_as_csv(md_table, csv_filename)
 
         return report

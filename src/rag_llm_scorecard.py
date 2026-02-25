@@ -45,7 +45,7 @@ from sentence_transformers import SentenceTransformer
 
 from llm_client import LLMClient
 import config
-from gold_standard import TRIAL_NAMES
+from gold_standard import TRIAL_NAMES, TRIAL_ID_BY_NAME
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -672,8 +672,8 @@ def main():
         output_md += "\n\n---\n\n"
 
         # CSV export
-        safe_title = re.sub(r'[\\/*?:"<>|]', "", title).replace(" ", "_")[:100]
-        csv_filename = os.path.join(rag_csv_dir, f"rag_llm_scorecard_{safe_title}.csv")
+        trial_id = TRIAL_ID_BY_NAME.get(title, "unknown")
+        csv_filename = os.path.join(rag_csv_dir, f"rag_llm_scorecard_{trial_id}.csv")
         _save_markdown_as_csv(markdown, csv_filename)
 
     output_path = os.path.join(os.path.dirname(__file__), "..", "results", "rag_llm",
