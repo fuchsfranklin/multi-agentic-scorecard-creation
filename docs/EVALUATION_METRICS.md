@@ -1,141 +1,121 @@
-# LLM Scorecard Generation: Preliminary Evaluation Metrics
+# Evaluation Metrics: LLM Scorecard Generation
 
-> **Note (Feb 23, 2026):** This document reflects the v1 evaluation results (pre-v2/v3 overhaul). The numbers below are from the earliest pipeline runs and are significantly worse than the v2.3 baseline in the README. Kept for historical reference. See `results/evaluation_report.md` for the most recent v2.3 results, and run the v3 pipeline for updated numbers.
+This document tracks how each LLM approach performs against the gold standard NHB values from Langdon et al., 2016. I update it after each run. The latest results are from the v3.1 run (Feb 24, 2026), the first time all three approaches and deepeval completed successfully.
 
-This document outlines the preliminary evaluation of different LLM approaches (Multi-Agentic, Single LLM, RAG LLM) against a Gold Standard (GS) for generating ASCO-style oncology scorecards.
+For the raw evaluation data, see `results/evaluation_report.md`. For historical v1 numbers, check the bottom of this file.
 
-## Gold Standard (GS) Net Health Benefit (NHB) Calculation
+## How I measure accuracy
 
-Based on the Gold Standard tables in `README.md`, the NHB is calculated as:
-`NHB = Clinical Benefit Score (CBS) - Toxicity Penalty + Bonus Points`
-Where the "Toxicity Score" (TS) in the GS table, if negative (e.g., -X), implies a penalty of X.
+Two primary metrics, both computed on Net Health Benefit (NHB):
 
-The LLM-generated scorecards appear to use a consistent formula structure:
-`NHB_llm = CBS_llm + TS_llm + Bonus_llm`
-Where `TS_llm` is a negative value if it represents a penalty.
+- Accuracy = `max(0, 100% − MAPE)`, where MAPE is the mean absolute percentage error across all four trials. Higher is better. 100% means every NHB matched exactly.
+- Pearson r between LLM-generated and gold standard NHB values. Measures whether the LLM at least ranks the trials in the right order, even if the magnitudes are off.
 
----
+I also run deepeval's GEval (LLM-as-judge) with three custom metrics:
+- Scorecard Correctness: do the numbers match the gold standard?
+- Clinical Reasoning: are the formulas and derivations sound?
+- Framework Compliance: does the output follow ASCO structure?
 
-## Trial-by-Trial Comparison of Net Health Benefit (NHB)
+## v3.1 results (Feb 24, 2026)
 
-**Gold Standard NHB Values (for reference):**
-*   Trial 1 (Enzalutamide): 70.8
-*   Trial 2 (Trastuzumab): 41.0
-*   Trial 3 (Ipilimumab): 17.4
-*   Trial 4 (Ibrutinib): 77.2
+Run config: `google/gemini-3-flash-preview` for all three model roles. 253s total. All steps succeeded.
 
-### Trial 1: Enzalutamide vs Placebo (Prostate Cancer)
-*   **Gold Standard (GS):** CBS: 37, TS: -2.2 (penalty of 2.2), Bonus: 36, **NHB: 70.8**
-*   **Multi-Agentic (MA):** CBS: 0.0, TS: 0.0, Bonus: 0.0, **NHB: 0.0**
-    *   Accuracy: Failed to extract any meaningful scores. NHB Diff: -70.8 (-100%).
-*   **Single LLM (SL):** CBS: 25, TS: -13.33, Bonus: 23, **NHB: 34.67**
-    *   Accuracy: Underestimated CBS & Bonus, significantly overestimated toxicity. NHB Diff: -36.13 (-51.0%).
-*   **RAG LLM (RAG):** CBS: 25, TS: -5, Bonus: 13, **NHB: 33.0**
-    *   Accuracy: Underestimated CBS & Bonus, overestimated toxicity. NHB Diff: -37.8 (-53.4%).
-    *   Reasoning: Hypothesized HR=0.75 (GS HR=0.63).
+### Summary
 
-### Trial 2: Trastuzumab regimen vs Standard (Breast Cancer)
-*   **Gold Standard (GS):** CBS: 41, TS: 0, Bonus: 0, **NHB: 41.0**
-*   **Multi-Agentic (MA):** CBS: -36.0, TS: 0.0, Bonus: 0.0, **NHB: -36.0**
-    *   Accuracy: Produced erroneous negative CBS. NHB Diff: -77.0 (-187.8%).
-*   **Single LLM (SL):** CBS: 25, TS: -5.71, Bonus: 15, **NHB: 34.29**
-    *   Accuracy: Underestimated CBS, incorrectly added toxicity & bonus. NHB Diff: -6.71 (-16.4%).
-*   **RAG LLM (RAG):** CBS: 30, TS: -5, Bonus: 8, **NHB: 33.0**
-    *   Accuracy: Underestimated CBS, incorrectly added toxicity & bonus. NHB Diff: -8.0 (-19.5%).
-    *   Reasoning: Hypothesized HR=0.70 (GS HR=0.59).
+| Approach | Accuracy | MAPE | Pearson r | Trials |
+|----------|:--------:|:----:|:---------:|:------:|
+| Single LLM | 78.2% | 21.8% | 0.981 | 4 |
+| Multi-Agentic | 62.8% | 37.2% | 0.738 | 4 |
+| RAG-LLM | 23.9% | 76.1% | 0.657 | 4 |
 
-### Trial 3: Ipilimumab vs Placebo (Melanoma)
-*   **Gold Standard (GS):** CBS: 25, TS: -7.6 (penalty of 7.6), Bonus: 0, **NHB: 17.4**
-*   **Multi-Agentic (MA):** CBS: 47.0, TS: 0.0, Bonus: 0.0, **NHB: 47.0**
-    *   Accuracy: Overestimated CBS, missed toxicity entirely. NHB Diff: +29.6 (+170.1%).
-*   **Single LLM (SL):** CBS: 25, TS: -52, Bonus: 15, **NHB: -12.0**
-    *   Accuracy: Matched CBS, but massively overestimated toxicity & incorrectly added bonus. NHB Diff: -29.4 (-169.0%).
-*   **RAG LLM (RAG):** CBS: 20, TS: -12, Bonus: 8, **NHB: 16.0**
-    *   Accuracy: Closest NHB. Underestimated CBS, slightly overestimated toxicity, incorrectly added bonus. NHB Diff: -1.4 (-8.0%).
-    *   Reasoning: Hypothesized HR=0.80 (GS HR=0.75).
+### Trial-by-trial NHB detail
 
-### Trial 4: Ibrutinib vs Chlorambucil (CLL)
-*   **Gold Standard (GS):** CBS: 84, TS: -6.8 (penalty of 6.8), Bonus: 0, **NHB: 77.2**
-*   **Multi-Agentic (MA):** CBS: 65.0, TS: 0.0, Bonus: 0.0, **NHB: 65.0**
-    *   Accuracy: Underestimated CBS, missed toxicity entirely. NHB Diff: -12.2 (-15.8%).
-*   **Single LLM (SL):** CBS: 30, TS: -4, Bonus: 24, **NHB: 50.0**
-    *   Accuracy: Significantly underestimated CBS & toxicity, incorrectly added large bonus. NHB Diff: -27.2 (-35.2%).
-*   **RAG LLM (RAG):** CBS: 40, TS: -5, Bonus: 14, **NHB: 49.0**
-    *   Accuracy: Significantly underestimated CBS & toxicity, incorrectly added bonus. NHB Diff: -28.2 (-36.5%).
-    *   Reasoning: Hypothesized HR=0.60 (GS HR=0.16).
+Gold standard NHB values: Enzalutamide 70.8, AC-TH 41.0, Ipilimumab 17.4, Ibrutinib 77.2.
 
----
+#### Single LLM (78.2% accuracy, Pearson r = 0.981)
 
-## Summary of Evaluation Metrics
+| Trial | Gold NHB | LLM NHB | Abs Error | % Error | CBS | Tox | Bonus |
+|-------|:--------:|:-------:|:---------:|:-------:|:---:|:---:|:-----:|
+| Enzalutamide | 70.8 | 70.5 | 0.3 | 0.4% | **37** | **-2.22** | 20 (gold: 36) |
+| AC-TH | 41.0 | 41.0 | 0.0 | 0.0% | **41** | **0** | **0** |
+| Ipilimumab | 17.4 | 32.5 | 15.1 | 86.8% | **25** | -7.5 | **0** |
+| Ibrutinib | 77.2 | 77.2 | 0.0 | 0.0% | **84** | **-6.82** | **0** |
 
-### 1. Accuracy of Extracted Data Points (Scorecard Components)
-*   **Clinical Benefit Score (CBS):**
-    *   MA: Very poor, often zero or highly inaccurate.
-    *   SL & RAG: Generally underestimated the clinical benefit compared to GS. The RAG approach's explicit HR hypotheses were often less favorable than GS, leading to lower CBS.
-*   **Toxicity Score (TS):**
-    *   MA: Consistently failed to identify toxicity penalties (scored as 0).
-    *   SL & RAG: Often applied toxicity penalties, but the magnitude was frequently inaccurate. Sometimes penalties were applied when GS had none, or the severity was misjudged.
-*   **Bonus Points:**
-    *   MA: Consistently scored zero.
-    *   SL & RAG: Frequently "hallucinated" bonus points where the GS indicated zero.
+CBS is perfect across all four trials. Toxicity values are close. The small differences (-7.5 vs -7.6, -6.82 vs -6.8) come from rounding in the AE rate ratios. Bonus is correct for 3/4 trials.
 
-### 2. Correlation Between LLM-Generated and Human-Derived Scores (NHB)
-*   **Multi-Agentic:** Very poor correlation. NHB scores were drastically different from GS.
-*   **Single LLM:** Poor correlation. NHB scores showed large deviations, both positive and negative.
-*   **RAG LLM:** Showed the most promise, with one trial (Trial 3) having a relatively small NHB difference (-8.0%). However, other trials still had significant deviations (approx. -20% to -53%). Qualitatively, the RAG NHB scores, while often incorrect in magnitude, didn't swing as erratically as the other two methods.
+The Ipilimumab outlier (86.8% error) is a presentation bug: the LLM wrote `25.0 + (7.5) + 0.0 = 32.5` in the NHB formula line, using positive tox instead of negative. The individual tox value was correctly computed as -7.5. If the arithmetic were right (25 - 7.5 = 17.5), the error would be 0.6%. This needs a post-processing fix to recalculate NHB from extracted components.
 
-### 3. Qualitative Review of LLM Reasoning
-*   **Multi-Agentic & Single LLM:** The output files primarily contain the final scorecards without detailed intermediate reasoning steps from the LLMs.
-*   **RAG LLM:** The RAG results included "Hypothesized Key Inputs" (e.g., HR, toxicity rationale). This provided some insight:
-    *   The hypothesized HRs by RAG were often different (mostly less favorable) than those implied by the GS CBS, directly impacting scores.
-    *   The rationale for toxicity and bonus points, when provided, was often generic or based on assumptions that did not fully align with the GS. This suggests that while RAG can retrieve and use context, the interpretation or the quality/relevance of the retrieved context for precise scoring needs improvement.
+Enzalutamide bonus is 20 vs gold 36. The model found palliation (10) and QoL (10) but missed tail-of-curve (16). Tail-of-curve requires visual KM curve interpretation, which is probably beyond text-only LLMs.
 
----
+#### Multi-Agentic (62.8% accuracy, Pearson r = 0.738)
 
-## Single Number Metrics for Net Health Benefit (NHB)
+| Trial | Gold NHB | LLM NHB | Abs Error | % Error | CBS | Tox | Bonus |
+|-------|:--------:|:-------:|:---------:|:-------:|:---:|:---:|:-----:|
+| Enzalutamide | 70.8 | 31.2 | 39.6 | 55.9% | **37** | -5.8 | 0 (gold: 36) |
+| AC-TH | 41.0 | 47.6 | 6.6 | 16.1% | 52 | -4.4 | **0** |
+| Ipilimumab | 17.4 | 7.0 | 10.4 | 59.8% | 27 | -20.0 | **0** |
+| Ibrutinib | 77.2 | 64.0 | 13.2 | 17.1% | **84** | -20.0 | **0** |
 
-**Definitions:**
-*   **Accuracy Number:** Defined as `max(0, 100% - MAPE)`, where MAPE (Mean Absolute Percentage Error) is `(1/n) * Σ(|GS_NHB - LLM_NHB| / |GS_NHB|) * 100%`.
-*   **Correlation Number:** The Pearson correlation coefficient (r) between the LLM-generated NHB scores and the Gold Standard NHB scores.
+The MAD architecture actually ran this time (it was completely broken by rate limiting in v3.0). CBS is correct for 2/4 trials. The main issue is toxicity. Two trials hit the -20 cap, meaning the extraction agents pulled AE rates from different sources or categories than Langdon et al. The AE ratios they cite are plausible (e.g., 54.1%/25.0% for Ipilimumab), but they don't match the specific rates from the paper (38.5%/28%). This is a retrieval precision problem.
 
-| LLM Approach      | Accuracy Number (`max(0, 100% - MAPE)`) | Correlation Number (Pearson r) |
-| :---------------- | :------------------------------------: | :----------------------------: |
-| Multi-Agentic     | 0.0%                                   | 0.115                          |
-| Single LLM        | 32.10%                                 | 0.892                          |
-| RAG LLM           | 70.63%                                 | 0.884                          |
+Bonus is 0 across the board, which is correct for 3/4 trials but misses Enzalutamide's 36. The MAD architecture doesn't have a bonus assessment step, which is worth adding.
 
----
+#### RAG-LLM (23.9% accuracy, Pearson r = 0.657)
 
-## Using ROUGE Metric for Evaluating Textual Explanations
+| Trial | Gold NHB | LLM NHB | Abs Error | % Error | CBS | Tox | Bonus |
+|-------|:--------:|:-------:|:---------:|:-------:|:---:|:---:|:-----:|
+| Enzalutamide | 70.8 | 21.0 | 49.8 | 70.3% | **37** | 0.0 | 20 (gold: 36) |
+| AC-TH | 41.0 | 3.0 | 38.0 | 92.7% | **41** | -0.6 | **0** |
+| Ipilimumab | 17.4 | 11.7 | 5.7 | 32.8% | **25** | -13.3 | **0** |
+| Ibrutinib | 77.2 | 161.2 | 84.0 | 108.8% | **84** | **-6.8** | **0** |
 
-ROUGE (Recall-Oriented Understudy for Gisting Evaluation) can be adapted to assess the similarity of textual explanations or justifications within the generated scorecards compared to the Gold Standard.
+CBS is perfect for all four trials, so the retrieval pipeline is finding the right hazard ratios. But the NHB calculations in the generated markdown are broken. The CSV for AC-TH shows `1.0 + (2.0) + 0.0 = 3.0` where CBS should be 41, not 1.0. Ibrutinib shows `84.0 + (77.2) + 0.0 = 161.2`, adding NHB to CBS instead of toxicity. These are LLM arithmetic errors in the generated text that the bonus audit then propagated into the final CSV.
 
-**Methodology:**
-1.  **Identify Text Segments:** For each scorecard component (CBS, TS, Bonus, NHB, Cost), extract the textual description/formula from both the Gold Standard (`README.md`) and the LLM-generated result files.
-2.  **Calculate ROUGE Scores:** For each pair of (Gold Standard Text, LLM-Generated Text), calculate ROUGE-1, ROUGE-2, and ROUGE-L F1-scores.
-3.  **Aggregate Scores:** Average the F1-scores across all components and trials for each LLM approach to get an overall measure of textual similarity.
+The individual components are often reasonable (CBS perfect, tox close for Ibrutinib), but the NHB formula line is garbled. This points to a generation prompt issue in the CRAG pipeline. The model loses track of which number goes where when assembling the final formula.
 
-**Expected ROUGE Performance (Qualitative):**
-*   **Multi-Agentic Approach:** Expected to have very low ROUGE scores due to minimal and often repetitive textual output.
-*   **Single LLM Approach:** Expected to have moderate ROUGE scores, particularly where formula structures align with the Gold Standard.
-*   **RAG LLM Approach:** Expected to have the highest ROUGE scores among the three, as it provides more descriptive text, including hypothesized inputs and rationales.
+### deepeval GEval scores
 
-ROUGE will complement numerical accuracy and correlation by evaluating the qualitative similarity of the LLMs' textual justifications.
+| Approach | Correctness | Reasoning | Compliance |
+|----------|:-----------:|:---------:|:----------:|
+| Single LLM | 0.72 | 0.80 | 0.97 |
+| Multi-Agentic | 0.28 | 0.55 | 1.00 |
+| RAG-LLM | 0.50 | 0.45 | 0.97 |
+
+Framework Compliance is near-perfect for all three. The LLMs produce structurally valid ASCO scorecards regardless of whether the numbers are right. The gap is in Correctness and Reasoning, where Single LLM leads.
+
+The judge (Gemini 3 Flash) flagged the Ipilimumab NHB arithmetic error in Single LLM (Correctness 0.50, Reasoning 0.40 for that trial) and the Ibrutinib NHB error in RAG-LLM (Correctness 0.80 but Reasoning 0.50). So the judge is catching real problems, which is encouraging.
+
+## Accuracy trend across runs
+
+| Run | Single LLM | Multi-Agentic | RAG-LLM |
+|-----|:----------:|:-------------:|:-------:|
+| v1 (early) | 32.1% | 0.0% | 70.6% |
+| v2.3 (Feb 21) | 67.1% | 34.0% | 51.6% |
+| v3.0 (Feb 23) | 61.4% | 0.0% | N/A |
+| v3.1 (Feb 24) | 78.2% | 62.8% | 23.9% |
+
+Single LLM has improved steadily. Multi-Agentic jumped from 34% to 63% once the rate limit and extraction issues were fixed. RAG-LLM regressed. The v1 result (70.6%) was actually its best, but that was with a different pipeline and different error patterns. The current RAG pipeline has a generation-stage bug that needs fixing.
+
+## What each metric tells me
+
+The MAPE-based accuracy and Pearson r measure different things. A high Pearson r with low accuracy means the LLM ranks trials correctly but gets the magnitudes wrong. A high accuracy with low Pearson r would mean the magnitudes are close on average but the ranking is off (hasn't happened yet).
+
+Single LLM's r = 0.981 is near-perfect correlation. It ranks all four trials in the right order and the magnitudes are close for 3/4. The Ipilimumab outlier drags MAPE up but doesn't hurt correlation much because the other three are so tight.
+
+Multi-Agentic's r = 0.738 is decent but the magnitude errors are larger. RAG-LLM's r = 0.657 is dragged down by the Ibrutinib NHB of 161.2 (should be 77.2), which is an obvious arithmetic error rather than a conceptual one.
+
+deepeval's GEval adds a qualitative dimension. It catches things like "the formula is mathematically inconsistent with the components" that pure numeric metrics miss. I plan to keep running it on every future run.
 
 ---
 
-## Overall Preliminary Conclusions
+## Historical: v1 results (pre-overhaul)
 
-*   **Current Performance:** None of the LLM approaches consistently and accurately replicated the Gold Standard scorecards in terms of final NHB and component scores.
-*   **Multi-Agentic:** Least effective in this implementation.
-*   **Single LLM:** Showed some capability but was prone to large errors.
-*   **RAG LLM:** Demonstrated the most stable (though still imperfect) performance, particularly in terms of NHB accuracy (MAPE-based). Its reasoning, while sometimes flawed, was more transparent.
-*   **Key Challenges for LLMs:**
-    *   Accurate extraction and interpretation of precise numerical data.
-    *   Correct application of complex scoring rules, especially for nuanced components like toxicity and bonus points.
-    *   Handling medical information to determine appropriate penalties or bonuses.
-*   **Future Directions:**
-    *   Improved prompt engineering for all approaches.
-    *   For RAG, enhancing the quality and specificity of the retrieved context.
-    *   Potentially a more structured data extraction phase before LLM-based scoring.
-    *   Fine-tuning models if feasible and data is available.
+These are from the earliest pipeline runs, before the v2/v3 architecture changes. Kept for reference. The methodology was substantially different: no self-consistency, no bonus audit, no MAD, no CRAG.
+
+| Approach | Accuracy (100−MAPE) | Pearson r |
+|----------|:-------------------:|:---------:|
+| Multi-Agentic | 0.0% | 0.115 |
+| Single LLM | 32.1% | 0.892 |
+| RAG-LLM | 70.6% | 0.884 |
+
+The v1 RAG-LLM result looks good on paper, but it was driven by one trial (Ipilimumab) getting close by accident. The RAG pipeline hypothesized HR=0.80 (gold: 0.75) and happened to land near the right NHB. The other three trials had 20-53% errors. I wouldn't read too much into the v1 numbers.

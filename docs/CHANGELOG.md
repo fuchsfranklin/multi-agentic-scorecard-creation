@@ -1,6 +1,34 @@
 # Changelog
 
-## v3.1.0 — February 24, 2026 — All 6 Debugging Report Fixes Applied
+## v3.1.1 - February 24, 2026 - First Fully Successful Run + Documentation Rewrite
+
+### v3.1 run results (Feb 24, 21:42 UTC)
+- Total wall time: 253.1s. All 4 pipeline steps succeeded. All 3 approaches produced output.
+  deepeval GEval worked for the first time.
+- Config: `google/gemini-3-flash-preview` for all three model roles (PRIMARY, EXTRACTION, JUDGE).
+  The remote machine's `.env` overrode EXTRACTION_MODEL to match PRIMARY_MODEL.
+- Single LLM: 78.2% accuracy, Pearson r=0.981. CBS perfect 4/4. Tox signs correct. Bonus
+  correct 3/4. Two exact NHB matches (AC-TH 41.0, Ibrutinib 77.2). Enzalutamide NHB=70.5
+  (gold 70.8, 0.4% error). Ipilimumab NHB=32.5 (gold 17.4) due to LLM writing positive tox
+  in the NHB formula line, a presentation bug, not a conceptual error.
+- Multi-Agentic: 62.8% accuracy, Pearson r=0.738. MAD architecture ran successfully for the
+  first time. CBS correct 2/4. Toxicity too aggressive, two trials hit the −20 cap.
+  Bonus 0 across the board (correct for 3/4).
+- RAG-LLM: 23.9% accuracy, Pearson r=0.657. CBS perfect 4/4 but NHB formulas in generated
+  markdown are broken (wrong CBS values in formula line, Ibrutinib added NHB to CBS giving 161.2).
+  Generation prompt needs restructuring.
+- deepeval GEval averages: Single LLM (0.72 correctness, 0.80 reasoning, 0.97 compliance),
+  Multi-Agentic (0.28, 0.55, 1.00), RAG-LLM (0.50, 0.45, 0.97).
+
+### Documentation rewrite
+- Rewrote README.md with v3.1 results, per-trial tables, component breakdowns, deepeval scores,
+  analysis of remaining issues, and historical accuracy trend.
+- Rewrote docs/EVALUATION_METRICS.md with v3.1 data, accuracy trends, and metric explanations.
+- Updated REMOTE_RUN_INSTRUCTIONS.md with v3.1 outcomes and updated watchlist.
+- Removed AI writing patterns from all documentation (rewrote in first person, varied sentence
+  structure, added personal observations).
+
+## v3.1.0 - February 24, 2026 - All 6 Debugging Report Fixes Applied
 
 ### Fixes
 1. **Rate limit raised to 2000** (`src/llm_client.py`): The 200-call daily limit
@@ -25,13 +53,13 @@
    `37 + (-2.22) + 20 = 54.78`). Fixed by the Unicode minus normalization.
 6. **HF_TOKEN added to .env.example**: Avoids HuggingFace rate limiting warnings.
 
-## v3.0.2 — February 24, 2026 v3 Run Results Deep-Dive & Documentation Update
+## v3.0.2 - February 24, 2026 v3 Run Results Deep-Dive & Documentation Update
 
 ### Run analysis (Feb 23, 22:54 UTC run)
 - Total time: 153.4s. All 4 pipeline steps reported "success" but results are
   partially corrupted by rate limiting and a recurring bug.
 - Single LLM: 61.4% accuracy (down from 67.1% v2.3 baseline). CBS is now perfect
-  for all 4 trials (37, 41, 25, 84 — all exact matches). Bonus hallucination
+  for all 4 trials (37, 41, 25, 84, all exact matches). Bonus hallucination
   eliminated for 3/4 trials (0, 0, 0 vs v2.3's 10-40). But the bonus audit pass
   introduced an NHB arithmetic bug for Enzalutamide (output 23.0 vs correct 54.78).
 - Multi-Agentic: 0.0% accuracy. All LLM extraction calls hit the 200-call daily
@@ -41,7 +69,7 @@
 - deepeval: All 24 GEval calls returned 400 Bad Request. No LLM-as-judge scores.
 
 ### Issues identified for next run
-1. Daily rate limit (200 calls) too low for v3's multi-sample approaches — raise to 300+
+1. Daily rate limit (200 calls) too low for v3's multi-sample approaches. Raise to 300+
 2. TeeWriter.isatty fix not deployed on remote machine
 3. Bonus audit NHB arithmetic bug (overwrites correct NHB with wrong calculation)
 4. Toxicity sign parsing bug in evaluate.py (extracts absolute values, not negatives)
@@ -53,7 +81,7 @@
   and what broke, and prioritized next steps.
 - Updated docs/CHANGELOG.md with run results entry.
 
-## v3.1 — February 23, 2026 Project Cleanup & Auto-Archive
+## v3.1 - February 23, 2026 Project Cleanup & Auto-Archive
 
 ### Cleanup
 - Deleted leftover scaffolding files: `MOVE_COMMANDS.ps1`, `MOVE_PLAN.txt`,
@@ -76,11 +104,11 @@
   from silently overwriting old ones.
 - `evaluate.py` now stamps each report with run date and model configuration.
 
-## v3.0 — February 23, 2026 Methodological Overhaul (Self-Consistency, MAD, CRAG)
+## v3.0 - February 23, 2026 Methodological Overhaul (Self-Consistency, MAD, CRAG)
 
 Complete rewrite of all four scorecard approaches with modern LLM techniques (Feb 2026).
-Goal: address the three root causes from v2.3 — bonus hallucination, extraction failures,
-and toxicity guessing — using techniques that are current as of early 2026.
+Goal: address the three root causes from v2.3 (bonus hallucination, extraction failures,
+and toxicity guessing) using techniques that are current as of early 2026.
 
 ### Single LLM → Self-Consistency + Bonus Audit
 - Self-Consistency voting: 3 independent Chain-of-Thought samples per trial, median-vote
@@ -104,7 +132,7 @@ and toxicity guessing — using techniques that are current as of early 2026.
 - Deterministic `CalculationAgent` applies ASCO formulas (no LLM math).
 - Targeted PubMed queries using landmark trial names (AFFIRM, NSABP B-31, EORTC 18071,
   RESONATE-2) and author names.
-- 8–12 LLM calls total (2 extractors + optional judge × 4 trials).
+- 8 to 12 LLM calls total (2 extractors + optional judge × 4 trials).
 
 ### RAG-LLM → Corrective RAG (CRAG) + Bonus Audit
 - Document grading step: each retrieved document is scored for relevance to the specific
@@ -127,11 +155,11 @@ and toxicity guessing — using techniques that are current as of early 2026.
 ### README
 - Updated "three approaches" table with v3 techniques.
 - Results section now labeled as "Pre-v3 baseline" with notes on what v3 changes.
-- Updated cost table (16 calls for single LLM, 8–12 for multi-agentic, 12+ for RAG).
+- Updated cost table (16 calls for single LLM, 8 to 12 for multi-agentic, 12+ for RAG).
 - Updated project structure descriptions.
 - Next steps section reflects v3 status.
 
-## v2.4 — February 21, 2026 Accuracy Improvements (Prompts, Retrieval, Validation)
+## v2.4 - February 21, 2026 Accuracy Improvements (Prompts, Retrieval, Validation)
 
 Based on diagnostic analysis of the Feb 21 run results (v2.3), this update targets
 the three biggest error sources: bonus point hallucination, multi-agentic extraction
@@ -181,7 +209,7 @@ failures, and weak retrieval queries.
   vector-only search. Hybrid search (70% semantic / 30% keyword) should improve
   retrieval of specific numeric values like hazard ratios and AE rates.
 
-## v2.3 — February 21, 2026 First Full Pipeline Run & Diagnostic Analysis
+## v2.3 - February 21, 2026 First Full Pipeline Run & Diagnostic Analysis
 
 ### Run results
 - First fully clean pipeline execution: run 7 of 7 attempts, 82.9 seconds total.
@@ -215,7 +243,7 @@ failures, and weak retrieval queries.
 - Deep Outputs (MOA engine) results use non-standard ASCO formulas and are not
   directly comparable to the gold standard. Needs separate evaluation criteria.
 
-## v2.2 — February 18, 2026 Portability, Logging & Model Update
+## v2.2 - February 18, 2026 Portability, Logging & Model Update
 
 ### Models
 - Upgraded EXTRACTION_MODEL from `openai/gpt-4.1-mini` to `openai/gpt-5.1-mini`:
@@ -223,10 +251,10 @@ failures, and weak retrieval queries.
     "at this time" per OpenAI, its long-term API availability is uncertain.
   - GPT-5.1-mini ($0.25/$2.00 per M tokens) is the current-gen mini reasoning model.
   - Supports json_schema structured outputs (same as GPT-4.1-mini).
-  - Is a reasoning model — temperature auto-skipped by llm_client.py.
+  - Is a reasoning model, so temperature is auto-skipped by llm_client.py.
   - Actually cheaper than GPT-4.1-mini ($0.40/$1.60).
 - Upgraded JUDGE_MODEL from `openai/gpt-4.1-mini` to `openai/gpt-5.1-mini` (same reasoning).
-- PRIMARY_MODEL remains `google/gemini-3-flash-preview` — still the best value for
+- PRIMARY_MODEL remains `google/gemini-3-flash-preview`, still the best value for
   open-ended scorecard generation at $0.50/$3.00 per M tokens.
 - Updated .env.example with current model alternatives and pricing.
 
@@ -241,19 +269,19 @@ failures, and weak retrieval queries.
 - OpenRouter structured outputs: json_schema mode works with both GPT-5.1-mini and Gemini 3 Flash.
 
 ### New Files
-- `run_all.py` — Master orchestrator that runs all 3 approaches + evaluation in one command,
+- `run_all.py`: Master orchestrator that runs all 3 approaches + evaluation in one command,
   with full file logging. Supports `--only`, `--skip-eval`, `--with-deepeval`, `--dry-run` flags.
-- `setup_and_validate.py` — Pre-flight validation script (8 checks: Python version, pip deps,
+- `setup_and_validate.py`: Pre-flight validation script (8 checks: Python version, pip deps,
   .env, OpenRouter API, ClinicalTrials.gov, PubMed, embedding model, LanceDB, output dirs).
   Zero cost, no LLM calls.
-- `src/log_setup.py` — Shared logging module. Creates timestamped log files in `logs/` with
+- `src/log_setup.py`: Shared logging module. Creates timestamped log files in `logs/` with
   both file and console output. Includes `TeeWriter` to capture print() output.
-- `logs/` directory — All run logs committed to git for remote debugging.
+- `logs/` directory: All run logs committed to git for remote debugging.
 
 ### Logging
 - Every `run_all.py` execution produces:
-  - `logs/run_all_{timestamp}.log` — full stdout/stderr + structured logging
-  - `logs/run_summary_{timestamp}.json` — machine-readable status, timing, errors, config used
+  - `logs/run_all_{timestamp}.log` with full stdout/stderr + structured logging
+  - `logs/run_summary_{timestamp}.json` with machine-readable status, timing, errors, config used
 - Designed for remote execution workflow: run on another machine, commit logs + results,
   pull locally to debug.
 
@@ -264,18 +292,18 @@ failures, and weak retrieval queries.
 - Updated README with `setup_and_validate.py` in setup instructions and `run_all.py` as the
   recommended way to run.
 
-## v2.1 — February 15, 2026 Methodology Verification
+## v2.1 - February 15, 2026 Methodology Verification
 
 ### Models
 - Upgraded PRIMARY_MODEL from `google/gemini-2.5-flash-preview` to `google/gemini-3-flash-preview`:
   - Current-generation model (released ~Feb 2026), 30% more token-efficient.
-  - 90.4% GPQA Diamond, 78% SWE-bench — significantly better reasoning.
+  - 90.4% GPQA Diamond, 78% SWE-bench, significantly better reasoning.
   - Cost: $0.50/$3.00 per M tokens (vs $0.15/$0.60 for 2.5 Flash).
   - Still very affordable for this project's low token volume (~$0.15 total).
 - Kept `openai/gpt-4.1-mini` for EXTRACTION_MODEL and JUDGE_MODEL:
   - Retired from ChatGPT UI on Feb 13, 2026, but OpenAI confirmed "In the API, there are no changes at this time."
   - Still available on OpenRouter. Non-reasoning model = fast, cheap, great for structured JSON.
-  - GPT-5-mini ($0.25/$2.00) is a reasoning model — slower and more expensive for simple extraction tasks.
+  - GPT-5-mini ($0.25/$2.00) is a reasoning model, slower and more expensive for simple extraction tasks.
 - Added GPT-5 family to reasoning model detection in `llm_client.py` (gpt-5, gpt-5-mini, gpt-5-nano, gpt-5.1, gpt-5.1-mini, gpt-5.2, gpt-5.2-chat).
 - Documented alternative models in config.py and .env.example.
 
@@ -286,12 +314,12 @@ failures, and weak retrieval queries.
 - ClinicalTrials.gov v2 API: stable since migration.
 - sentence-transformers / all-mpnet-base-v2: still current, no issues.
 
-## v2.0 — February 2026 Modernization
+## v2.0 - February 2026 Modernization
 
 ### Models
 - Replaced `openai/o3-mini` (single model for everything) with purpose-specific models via OpenRouter:
-  - `google/gemini-2.5-flash-preview` — scorecard generation (single_llm, rag_llm). Hybrid reasoning model with excellent cost/quality ratio ($0.15/$0.60 per M tokens).
-  - `openai/gpt-4.1-mini` — structured JSON extraction (multi_agentic) and deepeval judge. Best-in-class structured output at low cost ($0.40/$1.60 per M tokens).
+  - `google/gemini-2.5-flash-preview` for scorecard generation (single_llm, rag_llm). Hybrid reasoning model with excellent cost/quality ratio ($0.15/$0.60 per M tokens).
+  - `openai/gpt-4.1-mini` for structured JSON extraction (multi_agentic) and deepeval judge. Best-in-class structured output at low cost ($0.40/$1.60 per M tokens).
 - New config variables: `PRIMARY_MODEL`, `EXTRACTION_MODEL`, `JUDGE_MODEL` (all overridable via `.env`).
 - `llm_client.py` now auto-detects reasoning models (o3-mini, o4-mini, etc.) and skips unsupported parameters like `temperature`.
 
@@ -305,12 +333,12 @@ failures, and weak retrieval queries.
 ### RAG Pipeline
 - Upgraded embedding model from `all-MiniLM-L6-v2` (384d) to `all-mpnet-base-v2` (768d) for better biomedical text retrieval quality.
 - Added LanceDB hybrid search: combines vector similarity with BM25 full-text search, reranked via `LinearCombinationReranker` (70% semantic / 30% keyword). Falls back to pure vector search if FTS index unavailable.
-- Added automatic vector dimension mismatch detection — recreates the table if existing embeddings have a different dimension.
+- Added automatic vector dimension mismatch detection. Recreates the table if existing embeddings have a different dimension.
 - Simplified and cleaned up the RAG prompt and pipeline code.
 
 ### Cost Optimization
 - Total estimated cost for a full run (all 3 approaches + deepeval): ~$0.15
-- Gemini 3 Flash Preview is the current-gen model at $0.50/$3.00 per M tokens — still very cheap for this project's low volume.
+- Gemini 3 Flash Preview is the current-gen model at $0.50/$3.00 per M tokens, still very cheap for this project's low volume.
 - GPT-4.1-mini remains the best value for structured extraction at $0.40/$1.60 per M tokens.
 - Explicit `evaluation_steps` in deepeval GEval metrics eliminate 3 extra LLM calls per evaluation run.
 

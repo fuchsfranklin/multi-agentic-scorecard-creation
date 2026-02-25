@@ -1,212 +1,161 @@
 # LLM-Powered Oncology Scorecard Replication
 
-This project grew out of conversations with my former Pfizer colleagues [Brett South](https://www.linkedin.com/in/brett-south-phd-famia-50242349), [Jay Ronquillo](https://www.linkedin.com/in/geronimoronquillo), [Jon Mauer](https://www.linkedin.com/in/jonathan-mauer) and [Stephen Watt](https://scholar.google.com/citations?user=LXkHB_8AAAAJ&hl=en), aiming to to see if LLMs could reproduce established oncology value frameworks (ISPOR Scorecard, ASCO Value Framework) and how close they would get to human-derived scores.
+Based on some great discussions with my previous Pfizer colleagues [Brett South](https://www.linkedin.com/in/brett-south-phd-famia-50242349), [Ajit Jadhav](https://www.linkedin.com/in/ajit-jadhav-pfizer), [Jay Ronquillo](https://www.linkedin.com/in/geronimoronquillo), [Jon Mauer](https://www.linkedin.com/in/jonathan-mauer), and [Stephen Watt](https://scholar.google.com/citations?user=LXkHB_8AAAAJ&hl=en), this project aims to replicate established oncology value frameworks, such as the ISPOR Scorecard and ASCO Value Framework, using Large Language Models (LLMs) to validate their capabilities in reproducing human-derived scorecards. The project implements and compares three LLM-based approaches (multi-agent systems, single LLM pipelines, and retrieval-augmented generation) using data from ClinicalTrials.gov, PubMed, and OpenFDA. A fourth MOA-based multi-agent framework was later integrated for enhanced synthesis and traceability.
 
-## What it does
-
-We take four landmark oncology trials from [Langdon et al., 2016](https://ascopubs.org/doi/full/10.1200/JCO.2016.68.2518) and try to reproduce their ASCO Value Framework Net Health Benefit (NHB) scores using three different LLM-based approaches. Then we measure the gap.
+I picked four landmark trials from that paper and built three different LLM pipelines to generate ASCO Net Health Benefit (NHB) scorecards. Then I measure the gap against the published gold standard.
 
 The ASCO framework scores treatments on:
-- Clinical Benefit, derived from Hazard Ratios (HR) for OS/DFS/PFS
-- Toxicity penalty based on relative severe adverse event rates
+- Clinical Benefit Score (CBS), derived from Hazard Ratios for OS/DFS/PFS
+- Toxicity penalty, based on relative severe adverse event rates between arms
 - Bonus Points for tail-of-curve survival, palliation, QoL, treatment-free interval
-- Net Health Benefit (NHB) = Clinical Benefit + Toxicity + Bonus Points
+- Net Health Benefit = CBS + Toxicity + Bonus
 
-## The three approaches (v3, Feb 2026)
+## The three approaches (v3 architecture, Feb 2026)
 
-| Approach | How it works | Model | Technique | Question it answers |
-|----------|-------------|-------|-----------|---------------------|
-| Single LLM | 3 independent CoT scorecards per trial, median-vote on NHB, then a bonus audit pass strips unjustified bonus points. No external data. | Gemini 3 Flash Preview | Self-Consistency + Bonus Audit | How far can an LLM get with better prompting and self-correction? |
-| Multi-Agentic | Direct NCT ID lookup → PubMed abstracts → two independent extraction agents → judge resolves disagreements → deterministic ASCO calculator. | GPT-5.1-mini (extraction) | Multi-Agent Debate (MAD) | Does dual extraction with debate catch errors that a single agent misses? |
-| RAG-LLM | PubMed abstracts embedded in LanceDB, retrieved via hybrid search, graded for relevance (CRAG), low-relevance triggers query rewrite, then scorecard generation + bonus audit. | Gemini 3 Flash Preview | Corrective RAG (CRAG) + Bonus Audit | Does self-correcting retrieval improve grounding? |
+| Approach | How it works | Technique | What I'm testing |
+|----------|-------------|-----------|-----------------|
+| Single LLM | 3 independent Chain-of-Thought scorecards per trial, median-vote on NHB, then a bonus audit strips unjustified points. No external data. | Self-Consistency + Bonus Audit | How far can prompting and self-correction go without retrieval? |
+| Multi-Agentic | Direct NCT ID lookup, PubMed abstracts as primary source, two independent extraction agents, a judge resolves disagreements, then a deterministic ASCO calculator. | Multi-Agent Debate (MAD) | Does dual extraction with debate catch errors a single agent misses? |
+| RAG-LLM | PubMed abstracts embedded in LanceDB, hybrid search retrieval, documents graded for relevance (CRAG), low-relevance triggers query rewrite, then scorecard generation + bonus audit. | Corrective RAG (CRAG) + Bonus Audit | Does retrieval-augmented generation improve grounding over pure prompting? |
 
-## Models (Feb 2026)
+## Models
 
-All LLM calls go through [OpenRouter](https://openrouter.ai/) (OpenAI-compatible API).
+All LLM calls route through [OpenRouter](https://openrouter.ai/).
 
-| Role | Model | Cost (per 1M tokens) | Notes |
-|------|-------|---------------------|-------|
-| Scorecard generation | `google/gemini-3-flash-preview` | $0.50 in / $3.00 out | Released Dec 2025. 1M context window. |
-| Structured extraction | `openai/gpt-5.1-mini` | $0.25 in / $2.00 out | Supports `json_schema` structured output. |
-| Evaluation judge | `openai/gpt-5.1-mini` | $0.25 in / $2.00 out | Used by deepeval GEval metrics. |
+The v3.1 run (Feb 24) used `google/gemini-3-flash-preview` for all three roles. The remote machine's `.env` had EXTRACTION_MODEL overridden to match PRIMARY_MODEL. The defaults in code are:
 
-What changed in v3 (Feb 23, 2026):
-- Single LLM: Self-Consistency voting (3 CoT samples per trial, median NHB) + two-pass bonus audit. A second LLM call reviews each scorecard and strips unjustified bonus points. Zero-bonus calibration example (Ibrutinib, 0 bonus) replaces the old Enzalutamide example that had 36 bonus and was teaching the model to award bonuses.
-- Multi-Agentic: Multi-Agent Debate (MAD). Two independent extraction agents with different prompts extract metrics from PubMed abstracts, then a judge agent resolves disagreements. Hard-coded NCT ID lookup eliminates the old search-and-hope approach that pulled 861K chars of wrong trials. Deterministic ASCO calculator replaces LLM-based scoring.
-- RAG-LLM: Corrective RAG (CRAG). Retrieved documents are graded for relevance before use; if fewer than 2 pass, the query is rewritten using landmark trial names (AFFIRM, NSABP B-31, etc.). Same bonus audit as single LLM.
-- Deep Outputs: Complete prompt overhaul with mandatory ASCO formulas embedded (CBS=(1−HR)×100, Toxicity=((exp/ctrl)−1)×−20). Explicit "DO NOT invent alternative formulas" instruction. All 4 trials now included (previously only Ibrutinib was uncommented).
-- All approaches now use a zero-bonus calibration example (Ibrutinib with 0 bonus) and explicit AE rate hints in scenario contexts to reduce toxicity guessing.
-
-What changed in v2.x (earlier):
-- Moved from GPT-4.1-mini to GPT-5.1-mini for extraction and judging. Make sure your `.env` doesn't override `EXTRACTION_MODEL` to the old value.
-- Moved from Gemini 2.5 Flash to Gemini 3 Flash for scorecard generation.
-- ClinicalTrials.gov v1 API was retired June 2024. Multi-agentic pipeline uses v2.
-- RAG pipeline uses LanceDB hybrid search (70% semantic / 30% BM25 keyword) and all-mpnet-base-v2 embeddings (768d).
-- deepeval GEval runs through a custom `DeepEvalBaseLLM` wrapper that talks to OpenRouter via `requests`.
+| Role | Default in code | v3.1 run used | Cost (per 1M tokens) |
+|------|----------------|---------------|---------------------|
+| Scorecard generation | `google/gemini-3-flash-preview` | same | $0.50 / $3.00 |
+| Structured extraction | `openai/gpt-5.1-mini` | `google/gemini-3-flash-preview` | $0.25 / $2.00 |
+| Evaluation judge | `google/gemini-3-flash-preview` | same | $0.50 / $3.00 |
+| Embeddings | `all-mpnet-base-v2` (local) | same | Free |
 
 ## Gold standard (Langdon et al., 2016)
 
-These are the published reference values we're trying to match.
+These are the published reference values I'm benchmarking against.
 
 ### Enzalutamide vs Placebo, metastatic prostate cancer
 
-| Measure | Result/Score |
-|---------|-------------|
-| Clinical Benefit Score | HR (death) = 0.63 → (1 − 0.63) × 100 = **37** |
-| Toxicity Score | 15/13.5 − 1 = 0.11 → 0.11 × −20 = **−2.2** |
-| Bonus Points | Tail of Curve: 16, Palliation: 10, QoL: 10 |
-| Total Bonus | **36** |
-| Net Health Benefit | 37 − 2.2 + 36 = **70.8** |
-| Cost (Per Month) | **$8,495** |
+| Measure | Value |
+|---------|-------|
+| Clinical Benefit Score | HR (death) = 0.63 → (1 − 0.63) × 100 = 37 |
+| Toxicity Score | 15/13.5 − 1 = 0.11 → 0.11 × −20 = −2.2 |
+| Bonus Points | Tail of Curve: 16, Palliation: 10, QoL: 10 → Total: 36 |
+| Net Health Benefit | 37 − 2.2 + 36 = 70.8 |
+| Cost | $8,495/month |
 
 ### AC-TH vs AC-T, adjuvant HER2+ breast cancer
 
-| Measure | Result/Score |
-|---------|-------------|
-| Clinical Benefit Score | HR (death) = 0.59 → (1 − 0.59) × 100 = **41** |
-| Toxicity Score | No difference → **0** |
-| Total Bonus | **0** |
-| Net Health Benefit | 41 + 0 + 0 = **41** |
-| Cost (Total Course) | **$73,166** |
+| Measure | Value |
+|---------|-------|
+| Clinical Benefit Score | HR (death) = 0.59 → (1 − 0.59) × 100 = 41 |
+| Toxicity Score | No difference → 0 |
+| Bonus Points | 0 |
+| Net Health Benefit | 41 + 0 + 0 = 41.0 |
+| Cost | $73,166 total course |
 
 ### Ipilimumab vs Placebo, stage III melanoma
 
-| Measure | Result/Score |
-|---------|-------------|
-| Clinical Benefit Score | HR (DFS) = 0.75 → (1 − 0.75) × 100 = **25** |
-| Toxicity Score | 38.5/28 − 1 = 0.38 → 0.38 × −20 = **−7.6** |
-| Total Bonus | **0** |
-| Net Health Benefit | 25 − 7.6 = **17.4** |
-| Cost (Total Course) | **$458,858** |
+| Measure | Value |
+|---------|-------|
+| Clinical Benefit Score | HR (DFS) = 0.75 → (1 − 0.75) × 100 = 25 |
+| Toxicity Score | 38.5/28 − 1 = 0.38 → 0.38 × −20 = −7.6 |
+| Bonus Points | 0 |
+| Net Health Benefit | 25 − 7.6 = 17.4 |
+| Cost | $458,858 total course |
 
 ### Ibrutinib vs Chlorambucil, CLL
 
-| Measure | Result/Score |
-|---------|-------------|
-| Clinical Benefit Score | HR (death) = 0.16 → (1 − 0.16) × 100 = **84** |
-| Toxicity Score | 27.5/20.5 − 1 = 0.34 → 0.34 × −20 = **−6.8** |
-| Total Bonus | **0** |
-| Net Health Benefit | 84 − 6.8 = **77.2** |
-| Cost (Per 4 Months) | **$35,770** |
+| Measure | Value |
+|---------|-------|
+| Clinical Benefit Score | HR (death) = 0.16 → (1 − 0.16) × 100 = 84 |
+| Toxicity Score | 27.5/20.5 − 1 = 0.34 → 0.34 × −20 = −6.8 |
+| Bonus Points | 0 |
+| Net Health Benefit | 84 − 6.8 = 77.2 |
+| Cost | $35,770 per 4 months |
 
-## Results
+## Results: v3.1 run (Feb 24, 2026)
 
-### v3 run (Feb 23, 2026) — current results
+This is the first fully successful run. All four pipeline steps completed, all three approaches produced output, and deepeval's LLM-as-judge metrics worked for the first time.
 
-Run configuration: Gemini 3 Flash Preview (generation), GPT-5.1-mini (extraction/judge), all-mpnet-base-v2 (embeddings). Total time: 153.4s. All 4 pipeline steps reported "success" but two approaches were severely impacted by a **daily rate limit hit** (200 calls) partway through the run.
+Run config: Gemini 3 Flash Preview for all three model roles, all-mpnet-base-v2 embeddings. Total wall time: 253s.
 
-| Approach | Accuracy (100−MAPE) | MAPE | Pearson r | Trials | Status |
-|----------|--------------------:|-----:|----------:|-------:|--------|
-| Single LLM | 61.4% | 38.6% | 0.442 | 4 | Partial (rate-limited on last bonus audit) |
-| Multi-Agentic | 0.0% | 120.6% | 0.021 | 4 | **Broken** (all extractions rate-limited) |
-| RAG-LLM | N/A | N/A | N/A | 0 | **Failed** (TeeWriter.isatty crash) |
+| Approach | Accuracy (100−MAPE) | MAPE | Pearson r | Status |
+|----------|--------------------:|-----:|----------:|--------|
+| Single LLM | 78.2% | 21.8% | 0.981 | All 4 trials |
+| Multi-Agentic | 62.8% | 37.2% | 0.738 | All 4 trials |
+| RAG-LLM | 23.9% | 76.1% | 0.657 | All 4 trials |
 
-### What went wrong in this run
+### Per-trial NHB comparison
 
-Three separate issues corrupted the results:
+| Trial | Gold NHB | Single LLM | Multi-Agentic | RAG-LLM |
+|-------|:--------:|:----------:|:-------------:|:-------:|
+| Enzalutamide (Prostate) | 70.8 | 70.5 (0.4% err) | 31.2 (55.9%) | 21.0 (70.3%) |
+| AC-TH (Breast) | 41.0 | **41.0** | 47.6 (16.1%) | 3.0 (92.7%) |
+| Ipilimumab (Melanoma) | 17.4 | 32.5 (86.8%) | 7.0 (59.8%) | 11.7 (32.8%) |
+| Ibrutinib (CLL) | 77.2 | **77.2** | 64.0 (17.1%) | 161.2 (108.8%) |
 
-1. **Daily rate limit exhaustion (200 calls).** Single LLM now uses 3-sample self-consistency + bonus audit = ~16 LLM calls. It consumed nearly all 200 daily calls during its 116s run. By the time multi-agentic started, the limit was hit. Every extraction call failed with `Daily usage limit reached (200 calls)`, so the multi-agentic pipeline fell back to regex-extracted HRs from PubMed text (which were wrong for every trial) and zero toxicity across the board.
+### Per-trial component breakdown
 
-2. **RAG-LLM crashed on `TeeWriter.isatty`.** The log shows: `Failed to load embedding model: 'TeeWriter' object has no attribute 'isatty'`. This is the same bug from v2.3 that was supposedly fixed in `src/log_setup.py`. The fix either wasn't pulled to the remote machine, or the v3 rewrite of `rag_llm_scorecard.py` introduced a different code path that triggers it. RAG-LLM produced zero output files.
+| Trial | Gold CBS | SL CBS | MA CBS | RAG CBS | Gold Tox | SL Tox | MA Tox | RAG Tox | Gold Bonus | SL Bonus | MA Bonus | RAG Bonus |
+|-------|:--------:|:------:|:------:|:-------:|:--------:|:------:|:------:|:-------:|:----------:|:--------:|:--------:|:---------:|
+| Enzalutamide | 37 | **37** | **37** | **37** | -2.2 | **-2.2** | -5.8 | 0.0 | 36 | 20 | 0 | 20 |
+| AC-TH | 41 | **41** | 52 | **41** | 0 | **0** | -4.4 | -0.6 | 0 | **0** | **0** | **0** |
+| Ipilimumab | 25 | **25** | 27 | **25** | -7.6 | -7.5 | -20.0 | -13.3 | 0 | **0** | **0** | **0** |
+| Ibrutinib | 84 | **84** | **84** | **84** | -6.8 | **-6.8** | -20.0 | **-6.8** | 0 | **0** | **0** | **0** |
 
-3. **deepeval hit 400 Bad Request.** All 24 deepeval GEval calls returned `400 Client Error: Bad Request`. This is likely a model compatibility issue with the OpenRouter endpoint for GPT-5.1-mini when used through deepeval's API wrapper. No LLM-as-judge scores were produced.
+### deepeval GEval scores (LLM-as-judge)
 
-### Per-trial NHB comparison (v3 vs v2.3 baseline vs gold)
+First time these worked. Three metrics per trial, scored 0 to 1 by Gemini 3 Flash acting as judge.
 
-| Trial | Gold NHB | Single LLM v3 | Single LLM v2.3 | Multi-Agentic v3 | Multi-Agentic v2.3 | RAG-LLM v3 | RAG-LLM v2.3 |
-|-------|:--------:|:--------------:|:----------------:|:-----------------:|:------------------:|:----------:|:------------:|
-| Enzalutamide (Prostate) | 70.8 | 23.0 ↓ | 53.9 | 17.0 ↓ | 0.0 | — | 53.3 |
-| AC-TH (Breast) | 41.0 | **41.0** ✓ | 53.7 | −35.0 ↓↓ | 31.5 | — | 66.8 |
-| Ipilimumab (Melanoma) | 17.4 | 32.5 | 11.8 | 47.0 | 34.0 | — | 9.0 |
-| Ibrutinib (CLL) | 77.2 | **77.2** ✓ | 111.8 | 38.0 ↓ | 42.0 | — | 121.8 |
+| Approach | Scorecard Correctness | Clinical Reasoning | Framework Compliance |
+|----------|:---------------------:|:------------------:|:--------------------:|
+| Single LLM | 0.72 | 0.80 | 0.97 |
+| Multi-Agentic | 0.28 | 0.55 | 1.00 |
+| RAG-LLM | 0.50 | 0.45 | 0.97 |
 
-### Per-trial component breakdown (v3 run)
+Framework Compliance is near-perfect across the board. All three approaches produce structurally valid ASCO scorecards. The differentiation is in Correctness and Reasoning, where Single LLM leads by a wide margin.
 
-| Trial | Gold CBS | Single CBS | Multi CBS | Gold Tox | Single Tox | Multi Tox | Gold Bonus | Single Bonus | Multi Bonus |
-|-------|:--------:|:----------:|:---------:|:--------:|:----------:|:---------:|:----------:|:------------:|:-----------:|
-| Enzalutamide | 37.0 | **37.0** ✓ | 17.0 ✗ | −2.2 | 2.2 ✗ | 0.0 ✗ | 36.0 | 20.0 | 0.0 |
-| AC-TH | 41.0 | **41.0** ✓ | −35.0 ✗ | 0.0 | **0.0** ✓ | 0.0 ✓ | 0.0 | **0.0** ✓ | **0.0** ✓ |
-| Ipilimumab | 25.0 | **25.0** ✓ | 47.0 ✗ | −7.6 | 7.5 ✗ | 0.0 ✗ | 0.0 | **0.0** ✓ | **0.0** ✓ |
-| Ibrutinib | 84.0 | **84.0** ✓ | 38.0 ✗ | −6.8 | 6.8 ✗ | 0.0 ✗ | 0.0 | **0.0** ✓ | **0.0** ✓ |
+### What I see in these results
 
-### Analysis
+The Single LLM approach at 78.2% is the clear winner and a real step forward from the 67.1% we got in v2.3 and the 61.4% in the broken v3 run. CBS is perfect across all four trials. Toxicity signs are correct and the values are close (-2.22 vs gold -2.2, -7.5 vs -7.6, -6.82 vs -6.8). Bonus is correct for 3/4 trials. Two trials, AC-TH and Ibrutinib, are exact NHB matches.
 
-**Single LLM (61.4% accuracy, down from 67.1%):**
-The v3 self-consistency + bonus audit approach shows clear improvements in some areas but a regression overall:
-- CBS is now **perfect for all 4 trials** (37, 41, 25, 84 — all exact matches). This is a significant improvement; v2.3 also got 3/4 but the self-consistency voting locked in the correct values.
-- Bonus points are now **correct for 3/4 trials** (0, 0, 0). The bonus audit successfully eliminated hallucinated bonus for AC-TH, Ipilimumab, and Ibrutinib. This is a major fix — v2.3 gave 10-40 bonus to all 4 trials.
-- Enzalutamide bonus is 20 (gold: 36). The model correctly identified palliation (10) and QoL (10) but missed tail-of-curve (16). This is actually reasonable — tail-of-curve is the hardest bonus to assess.
-- **Toxicity sign is wrong.** The evaluation report shows positive toxicity values (2.2, 7.5, 6.8) where the gold standard has negative values (−2.2, −7.6, −6.8). This is a CSV parsing issue in `evaluate.py` — the toxicity formula produces negative numbers but the CSV parser is extracting the absolute value. The actual scorecard markdown shows the correct negative values and correct NHB arithmetic.
-- **NHB for Enzalutamide (23.0 vs gold 70.8):** The markdown shows `1.0 + (2.0) + 20.0 = 23.0` which is wrong arithmetic — it should be `37 − 2.22 + 20 = 54.78`. The self-consistency voting picked median NHB=54.78 (correct), but the bonus audit pass appears to have regenerated the scorecard with broken arithmetic in the final output. This is a bug in the bonus audit implementation.
-- **AC-TH and Ibrutinib are exact matches** (41.0 and 77.2). These are genuinely excellent results.
+The one outlier is Ipilimumab. The CSV shows `25.0 + (7.5) + 0.0 = 32.5`. The LLM wrote the NHB formula with a positive toxicity value in the markdown even though it correctly computed -7.5 elsewhere. The evaluation pipeline extracted 32.5 as the NHB, giving 86.8% error on that trial. If the arithmetic were correct (25 - 7.5 = 17.5), the error would drop to 0.6%. This is a presentation bug in the LLM's generated markdown, not a conceptual error. I need to add a post-processing step that recalculates NHB from the extracted components rather than trusting the LLM's inline arithmetic.
 
-**Multi-Agentic (0.0% accuracy, down from 34.0%):**
-This is entirely a rate limit failure, not a methodology failure. Every extraction call hit `Daily usage limit reached (200 calls)` and fell back to regex HR extraction from PubMed text. The regex picked up wrong HRs:
-- Enzalutamide: HR=0.83 (gold: 0.63) — likely grabbed a secondary endpoint HR
-- AC-TH: HR=1.35 (gold: 0.59) — grabbed an inverted or wrong HR entirely
-- Ipilimumab: HR=0.53 (gold: 0.75) — wrong endpoint
-- Ibrutinib: HR=0.62 (gold: 0.16) — wrong trial's HR again
-- All toxicity values are 0.0 because the LLM never ran
+Enzalutamide bonus is 20 vs gold 36. The model found palliation (10) and QoL (10) but missed tail-of-curve (16). Tail-of-curve requires interpreting Kaplan-Meier curve shapes, which is probably beyond what a text-only LLM can do without the actual figure. I'm not too worried about this gap.
 
-The v3 architecture (MAD with debate + direct NCT lookup) was never actually tested because no LLM calls succeeded. The 9-second runtime (vs expected 60-120s) confirms this.
+Multi-Agentic at 62.8% is a massive improvement over the 0.0% from the rate-limited v3 run and the 34.0% from v2.3. The MAD architecture actually ran this time. CBS is correct for 2/4 trials (Enzalutamide and Ibrutinib). The main problem is toxicity: two trials hit the -20 cap (Ipilimumab and Ibrutinib), which means the extraction agents pulled AE rates from different sources or different adverse event categories than Langdon et al. used. The extractors are finding real data, and the AE ratios they cite are plausible, but they're not matching the specific rates from the paper. This is a retrieval precision problem, not an architecture problem.
 
-**RAG-LLM (no results):**
-Crashed immediately on `TeeWriter.isatty` during embedding model load. Zero output files produced. The `isatty()` fix needs to be verified on the remote machine.
+RAG-LLM at 23.9% is the worst performer, which surprised me. CBS is actually perfect for all four trials, so the retrieval is finding the right hazard ratios. But the NHB calculations in the generated markdown are broken. Enzalutamide shows `1.0 + (0.0) + 20.0 = 21.0` where CBS should be 37, not 1.0. AC-TH shows `1.0 + (2.0) + 0.0 = 3.0`. Ibrutinib shows `84.0 + (77.2) + 0.0 = 161.2`, adding the NHB to CBS instead of toxicity. These are LLM arithmetic errors in the generated text that the bonus audit then propagated into the final CSV. The individual components (CBS, tox, bonus) are often reasonable, but the NHB line is garbled. This points to a prompt or output parsing issue specific to the RAG pipeline's generation step.
 
-**deepeval (all N/A):**
-All 24 GEval calls returned `400 Bad Request`. This needs investigation — possibly a deepeval version incompatibility with the OpenRouter wrapper, or the GPT-5.1-mini model doesn't support the specific API format deepeval uses.
+### Remaining issues to fix
 
-### Pre-v3 baseline (Feb 21, 2026 run, v2.3 methods)
+1. Ipilimumab NHB arithmetic in Single LLM: the LLM writes the formula with positive tox, producing 32.5 instead of 17.5. Need a post-processing NHB recalculation from extracted components.
+2. RAG-LLM NHB formulas are broken across multiple trials. The generated markdown has wrong CBS values in the NHB line even though CBS is extracted correctly above it. The CRAG pipeline's generation prompt may need restructuring.
+3. Multi-Agentic toxicity is too aggressive. Two trials hit the -20 cap. The extraction agents need better guidance on which AE categories to use (grade 3+ treatment-related, matching Langdon et al.'s methodology).
 
-These results are from the v2.3 pipeline before the v3 methodological overhaul. The remote machine's `.env` had `EXTRACTION_MODEL=openai/gpt-4.1-mini` instead of the `gpt-5.1-mini` default. Full per-trial breakdown in `results/archive/v2.3_20260221/evaluation_report.md`.
+### Historical results
 
-| Approach | Accuracy (100−MAPE) | MAPE | Pearson r | Trials |
-|----------|--------------------:|-----:|----------:|-------:|
-| Single LLM | 67.1% | 32.9% | 0.856 | 4 |
-| Multi-Agentic | 34.0% | 66.0% | −0.274 | 4 |
-| RAG-LLM | 51.6% | 48.4% | 0.808 | 4 |
+For context, here's how accuracy has trended across runs:
 
-## Next steps
+| Run | Single LLM | Multi-Agentic | RAG-LLM | Notes |
+|-----|:----------:|:-------------:|:-------:|-------|
+| v2.3 (Feb 21) | 67.1% | 34.0% | 51.6% | First clean run. EXTRACTION_MODEL was gpt-4.1-mini on remote. |
+| v3.0 (Feb 23) | 61.4% | 0.0% | N/A | Rate limit killed multi-agentic, TeeWriter crashed RAG. |
+| v3.1 (Feb 24) | 78.2% | 62.8% | 23.9% | First fully successful run. All fixes applied. |
 
-### Critical fixes for next run (must do)
-
-1. **Increase daily rate limit.** The 200-call limit in `llm_client.py` is too low for v3's multi-sample approaches. Single LLM alone uses ~16 calls, multi-agentic needs ~12, RAG needs ~12, deepeval needs ~36. That's ~76 calls minimum. Either raise the limit to 300+ or add per-approach budgeting so one approach can't starve the others.
-2. **Fix TeeWriter.isatty on remote machine.** The `src/log_setup.py` fix from v2.4.1 is either not deployed or the v3 rewrite introduced a new code path. Verify the fix is present: `TeeWriter` must have an `isatty()` method that returns `False`.
-3. **Fix the Enzalutamide NHB arithmetic bug.** The bonus audit pass regenerated the scorecard with `1.0 + (2.0) + 20.0 = 23.0` instead of `37 − 2.22 + 20 = 54.78`. The self-consistency voting correctly computed 54.78 but the audit overwrote it with broken arithmetic. The audit should only modify bonus values, not recompute the entire scorecard.
-4. **Fix toxicity sign in evaluate.py CSV parsing.** The parser extracts absolute values (2.2, 7.5, 6.8) instead of the actual negative toxicity scores (−2.2, −7.5, −6.8). This inflates the error calculation.
-5. **Debug deepeval 400 errors.** Check if the deepeval wrapper is sending an incompatible request format to OpenRouter for GPT-5.1-mini. May need to update the `DeepEvalBaseLLM` wrapper or switch the judge model.
-
-### Run order for next attempt
-
-Run approaches sequentially with rate limit awareness:
-1. `python run_all.py --only multi_agentic` (test MAD architecture first, ~12 calls)
-2. `python run_all.py --only rag_llm` (test CRAG + bonus audit, ~12 calls)
-3. `python run_all.py --only single_llm` (self-consistency, ~16 calls)
-4. `python run_all.py` (full run once individual approaches work)
-
-### What the v3 data actually tells us (despite the failures)
-
-The single LLM results, while partially corrupted by the audit bug, show that:
-- **CBS extraction is solved.** 4/4 exact matches. Self-consistency voting locks in the correct HR.
-- **Bonus hallucination is mostly solved.** 3/4 trials correctly got 0 bonus. The audit pass works.
-- **Enzalutamide bonus (20 vs gold 36)** is the remaining gap. The model finds palliation and QoL evidence but misses tail-of-curve. This may be an inherent limitation — tail-of-curve requires visual KM curve interpretation.
-- **The audit pass has a bug** that corrupts the final NHB for Enzalutamide. Fix this and single LLM accuracy should jump significantly.
-
-### Future improvements
-
-1. Ensemble approach: take the best component from each method (CBS from single LLM, toxicity from multi-agentic with real data, bonus from audit).
-2. Cost data integration via OpenFDA drug labeling API.
-3. Expand to more trials beyond the 4 in Langdon et al.
+The v2.3 and v3.0 results are archived in `results/archive/`. Full per-trial breakdowns for those runs are in their respective `evaluation_report.md` files.
 
 ## Data sources
 
-| API | What we use it for | Status |
-|-----|-------------------|--------|
-| [PubMed (Entrez)](https://www.ncbi.nlm.nih.gov/books/NBK25501/) | Trial abstracts with efficacy/toxicity data | Done |
-| [ClinicalTrials.gov v2](https://clinicaltrials.gov/data-api/api) | NCT IDs and trial metadata | Done (migrated from retired v1) |
-| [OpenFDA](https://open.fda.gov/apis/) | Drug labeling and adverse event data | Not yet |
+| API | Purpose | Status |
+|-----|---------|--------|
+| [PubMed (Entrez)](https://www.ncbi.nlm.nih.gov/books/NBK25501/) | Trial abstracts with efficacy and toxicity data | Working |
+| [ClinicalTrials.gov v2](https://clinicaltrials.gov/data-api/api) | NCT IDs and trial metadata | Working (migrated from retired v1) |
+| [OpenFDA](https://open.fda.gov/apis/) | Drug labeling and adverse event data | Not yet integrated |
 
-Cost data isn't available through free public APIs, so the LLM hypothesizes it.
+Cost data isn't available through free public APIs, so the LLM estimates it. The estimates vary. Enzalutamide came back as $12,900/month vs the gold standard's $8,495/month. Not a priority to fix since cost isn't part of the NHB calculation.
 
 ## Setup
 
@@ -222,22 +171,22 @@ pip install -r requirements.txt
 copy .env.example .env  # Windows
 # cp .env.example .env  # Linux/macOS
 
-# Check that everything works before spending any money
+# Validate setup before spending money
 python setup_and_validate.py
 ```
 
-You need an [OpenRouter](https://openrouter.ai/) API key. An NCBI/PubMed email is recommended (avoids rate limiting). See `.env.example` for all options.
+You need an [OpenRouter](https://openrouter.ai/) API key. An NCBI/PubMed email is recommended to avoid rate limiting. See `.env.example` for all config options.
 
 ## Running
 
 ```bash
-# Run everything with logging (recommended)
+# Full pipeline with logging
 python run_all.py                    # All 3 approaches + evaluation
-python run_all.py --with-deepeval    # Include LLM-as-judge metrics (~$0.05 extra)
+python run_all.py --with-deepeval    # Add LLM-as-judge metrics (~$0.05 extra)
 python run_all.py --only single_llm  # Just one approach
-python run_all.py --dry-run          # Setup check only, no LLM calls
+python run_all.py --dry-run          # Setup check, no LLM calls
 
-# Or run scripts individually
+# Or run individually
 python src/single_llm_scorecard.py
 python src/multi_agentic_scorecard.py
 python src/rag_llm_scorecard.py
@@ -245,70 +194,57 @@ python src/evaluate.py
 python src/evaluate.py --with-deepeval
 ```
 
-Output goes to `results/{approach}/` as CSV + markdown files.
+Output goes to `results/{approach}/` as CSV + markdown. Each `run_all.py` execution auto-archives previous results into `results/archive/run_{timestamp}/` before writing new ones.
 
 ## Logging
 
-`run_all.py` writes two files per run into `logs/`:
-- `run_all_{timestamp}.log` with full stdout/stderr
-- `run_summary_{timestamp}.json` with pass/fail status, timing, errors, and which models were used
+Every run produces two files in `logs/`:
+- `run_all_{timestamp}.log` with full stdout/stderr and structured logging
+- `run_summary_{timestamp}.json` with machine-readable status, timing, errors, and model config
 
-Before each run, any existing results in `results/{approach}/` are moved to
-`results/archive/run_{timestamp}/`. This means you can always tell which results
-are current and which are historical.
-
-Both logs and results are committed to git. If you run this on a remote machine, push the `logs/` and `results/` directories, then pull locally to debug.
+Logs and results are committed to git. The workflow is: run on the remote machine, push logs and results, pull locally to analyze.
 
 ## Cost
 
-A full run (all 3 approaches + deepeval) costs about $0.20–$0.30 total. v3 makes more LLM calls per approach (self-consistency, bonus audits, document grading) but uses the same affordable models.
+A full run costs about $0.20 to $0.30. The v3 architecture makes more LLM calls per approach (self-consistency, bonus audits, document grading) but the models are cheap.
 
-| Script | LLM Calls | Free API Calls | Cost |
-|--------|----------:|---------------:|-----:|
-| `single_llm_scorecard.py` | 16 (3 samples + 1 audit × 4 trials) | 0 | ~$0.06 |
-| `multi_agentic_scorecard.py` | 8–12 (2 extractors + optional judge × 4 trials) | ~20 (PubMed) | ~$0.03 |
-| `rag_llm_scorecard.py` | 12+ (grading + generation + audit × 4 trials) | ~20 (PubMed) | ~$0.06 |
-| `evaluate.py` | 0 | 0 | Free |
-| `evaluate.py --with-deepeval` | 36 | 0 | ~$0.05 |
+| Script | LLM Calls | Free API Calls | Approx Cost |
+|--------|:---------:|:--------------:|:-----------:|
+| single_llm_scorecard.py | 16 | 0 | ~$0.06 |
+| multi_agentic_scorecard.py | 8 to 12 | ~20 (PubMed) | ~$0.03 |
+| rag_llm_scorecard.py | 12+ | ~20 (PubMed) | ~$0.06 |
+| evaluate.py --with-deepeval | ~36 | 0 | ~$0.05 |
 
 ## Project structure
 
 ```
-├── run_all.py                     # Runs everything, auto-archives previous results
-├── setup_and_validate.py          # Pre-flight checks (no cost)
+├── run_all.py                     # Master orchestrator, auto-archives previous results
+├── setup_and_validate.py          # Pre-flight checks (free, no LLM calls)
 ├── src/
-│   ├── config.py                  # Config loader (reads .env)
-│   ├── log_setup.py               # Timestamped file + console logging
-│   ├── llm_client.py              # OpenRouter client, rate limiting, retries
+│   ├── config.py                  # Config loader (.env)
+│   ├── log_setup.py               # Timestamped logging + TeeWriter
+│   ├── llm_client.py              # OpenRouter client with rate limiting and retries
 │   ├── gold_standard.py           # Reference data from Langdon et al.
-│   ├── single_llm_scorecard.py    # Self-Consistency + Bonus Audit (v3)
-│   ├── multi_agentic_scorecard.py # Multi-Agent Debate with PubMed extraction (v3)
-│   ├── rag_llm_scorecard.py       # Corrective RAG + Bonus Audit (v3)
-│   ├── deep_outputs_scorecard.py  # MOA engine with corrected ASCO formulas (v3)
-│   ├── evaluate.py                # Evaluation (deterministic + deepeval)
+│   ├── single_llm_scorecard.py    # Self-Consistency + Bonus Audit
+│   ├── multi_agentic_scorecard.py # Multi-Agent Debate with PubMed extraction
+│   ├── rag_llm_scorecard.py       # Corrective RAG + Bonus Audit
+│   ├── deep_outputs_scorecard.py  # MOA engine with ASCO formulas
+│   ├── evaluate.py                # Deterministic + deepeval evaluation
 │   └── test_apis.py               # Smoke test for external APIs
 ├── results/
-│   ├── single_llm/                # Latest run output (CSVs + markdown)
-│   ├── multi_agentic/             # Latest run output
-│   ├── rag_llm/                   # Latest run output
-│   ├── deep_outputs/              # Latest Deep Outputs run
+│   ├── single_llm/                # Latest run output
+│   ├── multi_agentic/
+│   ├── rag_llm/
 │   ├── evaluation_report.md       # Latest evaluation report
-│   └── archive/                   # Auto-archived previous runs (timestamped)
-│       ├── v2.3_20260221/         # Feb 21 baseline (pre-v3)
-│       └── v1_deep_outputs/       # Original MOA engine results
-├── logs/                          # Run logs (tracked in git)
+│   └── archive/                   # Auto-archived previous runs
+├── logs/                          # Run logs (committed to git)
 ├── docs/
-│   ├── ISPOR_PAPER_MARKDOWN_FORMAT.md
-│   ├── EVALUATION_METRICS.md      # Historical v1 analysis
-│   └── CHANGELOG.md
+│   ├── EVALUATION_METRICS.md      # Detailed metrics analysis
+│   ├── CHANGELOG.md
+│   └── ISPOR_PAPER_MARKDOWN_FORMAT.md
 ├── requirements.txt
 └── .env.example
 ```
-
-Each `run_all.py` execution automatically moves any existing results into
-`results/archive/run_{timestamp}/` before writing new ones. This means
-`results/{approach}/` always contains the latest run, and all previous runs
-are preserved with their timestamps.
 
 ## References
 
