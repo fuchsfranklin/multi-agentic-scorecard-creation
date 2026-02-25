@@ -3,48 +3,48 @@
 ### Enzalutamide Versus Placebo After Chemotherapy in Metastatic Adenocarcinoma of Prostate
 | Measure | Result/Score |
 |---------|-------------|
-| **Clinical Benefit Score** | HR = 0.63 → (1 - 0.63) × 100 = **37.0** |
-| **Toxicity Score** | 30.1% / 23.3% − 1 = 0.29 → 0.29 × -20 = **-5.8** |
+| **Clinical Benefit Score** | HR = 0.83 → (1 - 0.83) × 100 = **17.0** |
+| **Toxicity Score** | 0.0% / 0.0% − 1 = 0.00 → 0.00 × -20 = **0.0** |
 | **Bonus Points** | Tail: 0.0, Palliation: 0.0, TFI: 0.0, QoL: 0.0 |
 | **Total Bonus Points** | **0.0** |
-| **Net Health Benefit** | 37.0 + (-5.8) + 0.0 = **31.2** |
-| **Cost** | **$7,000 - $12,000 per month** |
+| **Net Health Benefit** | 17.0 + (0.0) + 0.0 = **17.0** |
+| **Cost** | **N/A** |
 
 ---
 
 ### Doxorubicin + Cyclophosphamide → Paclitaxel + Trastuzumab vs Doxorubicin + Cyclophosphamide + Paclitaxel in Adjuvant HER2+ Breast Cancer
 | Measure | Result/Score |
 |---------|-------------|
-| **Clinical Benefit Score** | HR = 0.48 → (1 - 0.48) × 100 = **52.0** |
-| **Toxicity Score** | 18.8% / 15.4% − 1 = 0.22 → 0.22 × -20 = **-4.4** |
+| **Clinical Benefit Score** | HR = 1.35 → (1 - 1.35) × 100 = **-35.0** |
+| **Toxicity Score** | 0.0% / 0.0% − 1 = 0.00 → 0.00 × -20 = **0.0** |
 | **Bonus Points** | Tail: 0.0, Palliation: 0.0, TFI: 0.0, QoL: 0.0 |
 | **Total Bonus Points** | **0.0** |
-| **Net Health Benefit** | 52.0 + (-4.4) + 0.0 = **47.6** |
-| **Cost** | **$10,000 - $20,000** |
+| **Net Health Benefit** | -35.0 + (0.0) + 0.0 = **-35.0** |
+| **Cost** | **N/A** |
 
 ---
 
 ### Ipilimumab Versus Placebo After Primary Treatment of Stage III Melanoma
 | Measure | Result/Score |
 |---------|-------------|
-| **Clinical Benefit Score** | HR = 0.73 → (1 - 0.73) × 100 = **27.0** |
-| **Toxicity Score** | 54.1% / 25.0% − 1 = 1.16 → 1.16 × -20 = **-20.0** |
+| **Clinical Benefit Score** | HR = 0.53 → (1 - 0.53) × 100 = **47.0** |
+| **Toxicity Score** | 0.0% / 0.0% − 1 = 0.00 → 0.00 × -20 = **0.0** |
 | **Bonus Points** | Tail: 0.0, Palliation: 0.0, TFI: 0.0, QoL: 0.0 |
 | **Total Bonus Points** | **0.0** |
-| **Net Health Benefit** | 27.0 + (-20.0) + 0.0 = **7.0** |
-| **Cost** | **$150,000** |
+| **Net Health Benefit** | 47.0 + (0.0) + 0.0 = **47.0** |
+| **Cost** | **N/A** |
 
 ---
 
 ### Ibrutinib Versus Chlorambucil As Initial Therapy for Chronic Lymphocytic Leukemia
 | Measure | Result/Score |
 |---------|-------------|
-| **Clinical Benefit Score** | HR = 0.16 → (1 - 0.16) × 100 = **84.0** |
-| **Toxicity Score** | 34.5% / 14.0% − 1 = 1.46 → 1.46 × -20 = **-20.0** |
+| **Clinical Benefit Score** | HR = 0.62 → (1 - 0.62) × 100 = **38.0** |
+| **Toxicity Score** | 0.0% / 0.0% − 1 = 0.00 → 0.00 × -20 = **0.0** |
 | **Bonus Points** | Tail: 0.0, Palliation: 0.0, TFI: 0.0, QoL: 0.0 |
 | **Total Bonus Points** | **0.0** |
-| **Net Health Benefit** | 84.0 + (-20.0) + 0.0 = **64.0** |
-| **Cost** | **$15,000 per month** |
+| **Net Health Benefit** | 38.0 + (0.0) + 0.0 = **38.0** |
+| **Cost** | **N/A** |
 
 ---
 

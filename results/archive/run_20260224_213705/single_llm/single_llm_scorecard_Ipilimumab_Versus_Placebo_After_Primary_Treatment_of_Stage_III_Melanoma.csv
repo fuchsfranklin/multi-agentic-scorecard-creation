@@ -1,6 +1,6 @@
 Measure,Result/Score,
 Clinical Benefit Score,HR (DFS) = 0.75 → (1 − 0.75) × 100 = 25,25
-Toxicity Score,38.5% / 28.0% − 1 = 0.375 → 0.375 × −20 = −7.5,-7.5
+Toxicity Score,38.5% / 28.0% − 1 = 0.375 → 0.375 × −20 = −7.5,7.5
 Bonus Points,"Tail of the Curve: 0, Palliation: 0, TFI: 0, QoL: 0",0
 Total Bonus Points,0.0,0.0
 Net Health Benefit,25.0 + (7.5) + 0.0 = 32.5,32.5
